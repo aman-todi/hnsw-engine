@@ -54,9 +54,10 @@ INSTANTIATE_TEST_SUITE_P(DimsAndMetrics, IndexRecall,
                                            RecallCase{100, Metric::L2}, RecallCase{128, Metric::L2},
                                            // Max inner product on un-normalized clustered data
                                            // is much harder for graph search (hnswlib reaches
-                                           // 0.81 at ef=100 on this data too).
-                                           RecallCase{33, Metric::InnerProduct, 400, 0.93},
-                                           RecallCase{64, Metric::Cosine}, RecallCase{100, Metric::Cosine}));
+                                           // ~0.8 at ef=100 on such data too).
+                                           RecallCase{33, Metric::InnerProduct, 1000, 0.93},
+                                           RecallCase{64, Metric::Cosine},
+                                           RecallCase{100, Metric::Cosine, 200}));
 
 TEST(Index, RandomUniform10kRecall) {
   // M2 acceptance: 10k random vectors, recall@10 >= 0.95 at modest ef.

@@ -15,7 +15,7 @@ namespace {
 
 std::vector<float> rand_vec(std::size_t n, uint64_t seed) {
   std::mt19937_64 rng(seed);
-  std::uniform_real_distribution<float> d(-1.0f, 1.0f);
+  std::uniform_real_distribution<float> d(-1.0f, 1.0f);  // exact values irrelevant for timing
   std::vector<float> v(n);
   for (auto& x : v) x = d(rng);
   return v;
