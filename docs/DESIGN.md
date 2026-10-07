@@ -127,6 +127,13 @@ linking:
   under the lock and releases it immediately unless its node will become the
   new top level, in which case it holds the lock for its whole insert (rare:
   ~1/M^L of nodes) so two threads cannot both install new tops;
+* the entry set for layer `l-1` is the result set of layer `l` (paper,
+  Algorithm 1), so another thread can reach a node on a layer *before* that
+  node has written its own list there, and link to it. A node therefore
+  **merges** any edges already present into its new list (re-pruning with the
+  heuristic on overflow) instead of overwriting it; overwriting silently
+  dropped edges and left nodes unreachable on low-degree data (regression
+  test `ParallelBuildKeepsEveryNodeReachable`);
 * vectors, levels and upper offsets are written before the workers start
   (thread creation is the happens-before edge) and never change during
   linking, so they are read without locks.

@@ -106,4 +106,5 @@ $PYTHON bench/python/compare.py --data data --name $GIST --metric l2 --subset $G
 
 echo "== plots and tables =="
 $PYTHON bench/python/plot.py
+$PYTHON bench/python/report.py
 echo "done: see $RES/summary.md"

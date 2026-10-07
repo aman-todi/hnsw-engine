@@ -8,7 +8,7 @@
 | M1 | Brute force + harness | done | `bench_main --mode brute` reaches recall 1.0 against independently computed (NumPy) ground truth; CSV with recall/QPS/p50/p95/p99 |
 | M2 | HNSW (paper-faithful) | done | 10k uniform random vectors: recall@10 ≥ 0.95 at ef=128 (test); recall matches hnswlib on identical data |
 | M3 | SIMD + layout + prefetch + visited pool | done | kernel tests for all dims 1–1024 (aligned + misaligned); microbench + ablation in `bench/results/` |
-| M4 | Parallel build + batch search | done | thread-scaling table; TSan clean; parallel-build recall within 1% of single-thread (test) |
+| M4 | Parallel build + batch search | done | 4.0× build speedup on 4 cores; TSan clean; all nodes reachable after parallel build (regression test); parallel-build recall within 1% of single-thread (test) |
 | M5 | Python package | done | `pip install .` in a clean venv; 28 pytest tests incl. exact parity with the C++ harness |
 | M6 | Persistence + mmap | done | round-trip identical results (both modes); truncation + bit-flip fuzz always throws; ASan/UBSan clean |
 | M7 | Filtered search + soft delete | done | selectivity sweep 1/10/50/90% (tests + `filter.csv`); deleted labels never returned |
@@ -41,6 +41,17 @@
 
 ## Known issues / limitations
 
+* **Open:** on synth-sift the engine's recall saturates lower than hnswlib's
+  at very high ef (0.9913 vs 0.9962 at ef = 640), costing it the ≥ 0.99
+  target there; it matches or beats hnswlib's recall on synth-glove and
+  synth-gist. Two hnswlib behaviours (single entry point between layers;
+  skipping the heuristic below M candidates) were A/B tested and ruled out.
+* **Fixed during M8:** parallel builds could drop edges (a node overwrote
+  edges other threads had already added to it), leaving nodes unreachable on
+  low-degree data. Found via the README example; fixed and regression-tested.
+  Benchmarks were re-run after the fix.
+* Throughput on the shared benchmark VM varies between runs (~16%
+  single-thread, ~30% batched); see BENCHMARKS.md.
 * Benchmarks are on synthetic data (see above).
 * Python-level concurrency is tested for correctness, but the TSan run covers
   the C++ suite only (TSan-instrumenting CPython is out of scope).

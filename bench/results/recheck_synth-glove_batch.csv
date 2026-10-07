@@ -1,0 +1,7 @@
+library,version,dataset,n,dim,metric,M,efc,threads,build_s,build_1t_s,index_bytes,rss_delta_mb,peak_rss_mb,mode,ef,k,recall,qps,p50_us,p95_us,p99_us
+engine,0.1.0,synth-glove,1183514,100,cosine,16,200,4,153.685,nan,703661984,736.8,1237.2,batch,20,10,0.88619,41171.5,nan,nan,nan
+engine,0.1.0,synth-glove,1183514,100,cosine,16,200,4,153.685,nan,703661984,736.8,1237.2,batch,40,10,0.96255,24392.6,nan,nan,nan
+engine,0.1.0,synth-glove,1183514,100,cosine,16,200,4,153.685,nan,703661984,736.8,1237.2,batch,80,10,0.98849,14373.6,nan,nan,nan
+hnswlib,0.8.0,synth-glove,1183514,100,cosine,16,200,4,161.877,nan,649240500,735.2,1244.7,batch,20,10,0.88358,39820.5,nan,nan,nan
+hnswlib,0.8.0,synth-glove,1183514,100,cosine,16,200,4,161.877,nan,649240500,735.2,1244.7,batch,40,10,0.96003,22571.9,nan,nan,nan
+hnswlib,0.8.0,synth-glove,1183514,100,cosine,16,200,4,161.877,nan,649240500,735.2,1244.7,batch,80,10,0.98651,14966.9,nan,nan,nan
