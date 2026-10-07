@@ -55,6 +55,8 @@
 * Benchmarks are on synthetic data (see above).
 * Python-level concurrency is tested for correctness, but the TSan run covers
   the C++ suite only (TSan-instrumenting CPython is out of scope).
-* GitHub Actions results depend on the hosted runners; the workflow was
-  validated locally step by step (gcc 13, clang 18 on Linux).
+* CI (GitHub Actions) is green on `main`: GCC + Clang on Ubuntu, AppleClang on
+  macOS arm64 (NEON), ASan/UBSan, TSan, wheel + pytest on Linux and macOS,
+  clang-format, smoke benchmark. The first macOS run exposed test data that
+  differed between libstdc++ and libc++; tests now use a portable RNG.
 * No Windows support (POSIX mmap).
