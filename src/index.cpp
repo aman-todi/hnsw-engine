@@ -143,16 +143,39 @@ void Index::Impl::select_neighbors(std::vector<Cand>& cands, std::size_t m, std:
 /// Set id's adjacency at `level` and add the reverse edges, re-pruning any
 /// neighbor list that overflows (Algorithm 1, lines 11-16).
 void Index::Impl::connect(uint32_t id, int level, const std::vector<Cand>& selected) {
-  {
-    std::lock_guard<std::mutex> lock(node_lock(id));
-    uint32_t* l = list(id, level);
-    l[0] = static_cast<uint32_t>(selected.size());
-    for (std::size_t i = 0; i < selected.size(); ++i) l[1 + i] = selected[i].id;
-  }
-
   const std::size_t mmax = max_degree(level);
   std::vector<Cand> cands;
   std::vector<Cand> pruned;
+  {
+    std::lock_guard<std::mutex> lock(node_lock(id));
+    uint32_t* l = list(id, level);
+    const uint32_t existing = l[0];
+    if (existing == 0) {
+      l[0] = static_cast<uint32_t>(selected.size());
+      for (std::size_t i = 0; i < selected.size(); ++i) l[1 + i] = selected[i].id;
+    } else {
+      // Parallel build only: the entry set of this layer is the previous
+      // layer's result set, so a concurrent inserter can reach this node via
+      // an upper layer and link to it here before we do. Keep those edges
+      // (overwriting them silently disconnects nodes) and re-prune on overflow.
+      const float* q = vec(id);
+      cands.assign(selected.begin(), selected.end());
+      for (uint32_t j = 0; j < existing; ++j) {
+        const uint32_t e = l[1 + j];
+        bool dup = false;
+        for (const Cand& c : cands) dup = dup || c.id == e;
+        if (!dup) cands.push_back(Cand{dist(q, vec(e)), e});
+      }
+      std::sort(cands.begin(), cands.end(), CandLess{});
+      if (cands.size() > mmax) {
+        select_neighbors(cands, mmax, pruned);
+        cands.swap(pruned);
+      }
+      l[0] = static_cast<uint32_t>(cands.size());
+      for (std::size_t i = 0; i < cands.size(); ++i) l[1 + i] = cands[i].id;
+    }
+  }
+
   for (const Cand& nb : selected) {
     std::lock_guard<std::mutex> lock(node_lock(nb.id));
     uint32_t* l = list(nb.id, level);

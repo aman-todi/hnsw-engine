@@ -3,6 +3,7 @@
 #include <atomic>
 #include <thread>
 
+#include "hnsw/filter.hpp"
 #include "hnsw/index.hpp"
 #include "test_util.hpp"
 
@@ -34,6 +35,28 @@ TEST(Concurrency, ParallelBuildMatchesSingleThreadRecall) {
   const double r4 = recall_with(4);
   EXPECT_GE(r1, 0.95);
   EXPECT_NEAR(r4, r1, 0.01);
+}
+
+TEST(Concurrency, ParallelBuildKeepsEveryNodeReachable) {
+  // Regression: a concurrent inserter can link to a node on a layer before
+  // that node writes its own list there; the node must merge, not overwrite.
+  // Collinear points make the heuristic keep ~2 edges per node, so a single
+  // lost edge disconnects part of the graph.
+  const std::size_t n = 100, dim = 128;
+  std::vector<float> data(n * dim, 0.5f);
+  for (std::size_t i = 0; i < n; ++i) data[i * dim] = static_cast<float>(i);
+  const auto labels = test::iota_labels(n);
+  for (uint64_t seed = 0; seed < 20; ++seed) {
+    Params p{dim};
+    p.seed = seed;
+    Index index(p);
+    index.add_batch(data.data(), labels.data(), n, 4);
+    EXPECT_EQ(index.search(data.data(), n, 2 * n).size(), n) << "seed=" << seed;
+    BitsetFilter allow(n);
+    allow.set(7);
+    allow.set(99);
+    EXPECT_EQ(index.search(data.data(), 10, 64, &allow).size(), 2u) << "seed=" << seed;
+  }
 }
 
 TEST(Concurrency, BatchSearchEqualsSequentialSearch) {
