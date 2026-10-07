@@ -1,0 +1,6 @@
+label,dataset,n,dim,metric,mode,isa,prefetch,M,efc,build_threads,build_s,mem_bytes,peak_rss_kb,ef,k,search_threads,recall,qps,p50_us,p95_us,p99_us
+1 scalar kernels (no prefetch),synth-sift,1000000,128,l2,hnsw,scalar,0,16,200,0,0.971,666549676,1212180,64,10,1,0.95308,1483.4,649.9,917.7,1223.8
+2 +AVX2 kernels,synth-sift,1000000,128,l2,hnsw,avx2,0,16,200,0,2.014,666549676,1212080,64,10,1,0.95308,2946.1,319.1,497.6,651.2
+3 +prefetch,synth-sift,1000000,128,l2,hnsw,avx2,1,16,200,0,2.239,666549676,1212116,64,10,1,0.95308,3589.7,253.5,433.7,577.4
+4 +AVX-512 kernels,synth-sift,1000000,128,l2,hnsw,avx512,1,16,200,0,1.034,666549676,1212176,64,10,1,0.95308,3670.2,248.1,414.4,602.5
+5 +4 search threads,synth-sift,1000000,128,l2,hnsw,avx512,1,16,200,0,1.792,666549676,1212180,64,10,4,0.95308,15800.6,nan,nan,nan

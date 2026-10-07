@@ -75,7 +75,7 @@ ABL_SUBSET=$([[ $QUICK == 1 ]] && echo 100000 || echo 0)
 IDX=$(mktemp -d)/sift.idx
 $BM --data data --name $SIFT --subset $ABL_SUBSET --nq 1 --ef 10 --reps 1 --build-threads $THREADS --save $IDX >/dev/null
 abl() { $BM --data data --name $SIFT --subset $ABL_SUBSET --load $IDX --ef 64 --reps $REPS --out $RES/ablation.csv "$@"; }
-abl --label "1 scalar kernels, no prefetch" --isa scalar --no-prefetch --search-threads 1
+abl --label "1 scalar kernels (no prefetch)" --isa scalar --no-prefetch --search-threads 1
 abl --label "2 +AVX2 kernels" --isa avx2 --no-prefetch --search-threads 1
 abl --label "3 +prefetch" --isa avx2 --search-threads 1
 if grep -q avx512f /proc/cpuinfo 2>/dev/null; then

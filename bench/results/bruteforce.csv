@@ -1,0 +1,2 @@
+label,dataset,n,dim,metric,mode,isa,prefetch,M,efc,build_threads,build_s,mem_bytes,peak_rss_kb,ef,k,search_threads,recall,qps,p50_us,p95_us,p99_us
+,synth-sift,1000000,128,l2,brute,avx512,1,16,200,0,4.131,512000000,1020540,0,10,0,1.00000,59.1,nan,nan,nan
