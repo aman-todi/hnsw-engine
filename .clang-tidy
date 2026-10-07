@@ -1,0 +1,15 @@
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-implicit-widening-of-multiplication-result,
+  concurrency-*,
+  performance-*,
+  -performance-enum-size,
+  modernize-use-nullptr,
+  modernize-use-override,
+  misc-unused-using-decls
+WarningsAsErrors: ''
+HeaderFilterRegex: '(include/hnsw|src)/.*'
+FormatStyle: file

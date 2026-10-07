@@ -1,0 +1,31 @@
+[build-system]
+requires = ["scikit-build-core>=0.8", "pybind11>=2.11"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "hnsw-engine"
+version = "0.1.0"
+description = "HNSW approximate nearest-neighbor search: C++20 core with SIMD kernels, multithreading, mmap persistence and filtered search"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.21"]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+bench = ["hnswlib>=0.8", "faiss-cpu>=1.7", "matplotlib>=3.5", "h5py>=3.0"]
+
+[tool.scikit-build]
+wheel.packages = ["python/hnsw_engine"]
+cmake.build-type = "Release"
+cmake.version = ">=3.20"
+
+[tool.scikit-build.cmake.define]
+HNSW_BUILD_TESTS = "OFF"
+HNSW_BUILD_BENCH = "OFF"
+HNSW_BUILD_PYTHON = "ON"
+# Benchmark builds: pip install . -C cmake.define.HNSW_NATIVE=ON
+HNSW_NATIVE = { env = "HNSW_NATIVE", default = "OFF" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests/py"]

@@ -1,0 +1,9 @@
+build/
+data/
+*.hdf5
+__pycache__/
+*.egg-info/
+.pytest_cache/
+/dist/
+*.ivecs.tmp
+*.fvecs.tmp

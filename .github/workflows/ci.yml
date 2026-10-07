@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: build+test (${{ matrix.os }}, ${{ matrix.compiler }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, compiler: gcc, cxx: g++ }
+          - { os: ubuntu-latest, compiler: clang, cxx: clang++ }
+          - { os: macos-latest, compiler: appleclang, cxx: clang++ }
+    env:
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Install Ninja (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+      - name: Configure
+        run: cmake --preset release
+      - name: Build
+        run: cmake --build --preset release
+      - name: Test
+        run: ctest --preset release -j 2
+      - name: SIMD dispatch info
+        run: ./build/release/tests/cpp/hnsw_tests --gtest_filter='Dispatch.*:AllIsas/*' --gtest_brief=1
+
+  sanitizers:
+    name: ${{ matrix.preset }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [asan, tsan]
+    env:
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      # Newer kernels use more ASLR entropy than older TSan runtimes support.
+      - name: Reduce ASLR entropy for TSan
+        if: matrix.preset == 'tsan'
+        run: sudo sysctl vm.mmap_rnd_bits=28
+      - run: cmake --preset ${{ matrix.preset }}
+      - run: cmake --build --preset ${{ matrix.preset }}
+      - run: ctest --preset ${{ matrix.preset }} -j 2
+
+  python:
+    name: python (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel --outdir dist
+      - name: Install into a clean venv and run pytest
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install dist/*.whl pytest
+          /tmp/venv/bin/python -m pytest tests/py -q
+      - name: Parity with the C++ harness
+        run: |
+          cmake -S . -B build/parity -DCMAKE_BUILD_TYPE=Release -DHNSW_BUILD_TESTS=OFF
+          cmake --build build/parity --target bench_main
+          HNSW_BENCH_MAIN=build/parity/bench/bench_main /tmp/venv/bin/python -m pytest tests/py -q -k parity
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}
+          path: dist/*.whl
+
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: clang-format check
+        run: |
+          git ls-files '*.cpp' '*.hpp' | xargs clang-format --dry-run --Werror
+
+  smoke-bench:
+    name: smoke benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - run: python -m pip install numpy
+      - run: cmake --preset release && cmake --build --preset release --target bench_main micro_bench
+      - name: Generate a small synthetic dataset
+        run: python scripts/fetch_data.py --synthetic sift --n 20000 --nq 200 --data-dir data
+      - name: Brute force must reach recall 1.0
+        run: ./build/release/bench/bench_main --data data --name synth-sift --mode brute --search-threads 0 --reps 1
+      - name: HNSW sweep
+        run: ./build/release/bench/bench_main --data data --name synth-sift --ef 10,40,160 --reps 1 --build-threads 2
+      - name: Kernel microbenchmarks
+        run: ./build/release/bench/micro_bench --benchmark_filter='BM_L2/.*/128' --benchmark_min_time=0.05s
