@@ -72,16 +72,16 @@ def write_ivecs(path: Path, arr: np.ndarray) -> None:
 
 
 def read_fvecs(path: Path, max_rows: int | None = None) -> np.ndarray:
-    raw = np.fromfile(path, dtype=np.int32)
-    if raw.size == 0:
+    if os.path.getsize(path) == 0:
         return np.zeros((0, 0), dtype=np.float32)
+    raw = np.memmap(path, dtype=np.int32, mode="r")  # only the rows we keep are read
     d = int(raw[0])
     rows = raw.reshape(-1, d + 1)
-    if not (rows[:, 0] == d).all():
-        raise ValueError(f"{path}: inconsistent dimensions")
     if max_rows:
         rows = rows[:max_rows]
-    return rows[:, 1:].copy().view(np.float32)
+    if not (rows[:, 0] == d).all():
+        raise ValueError(f"{path}: inconsistent dimensions")
+    return np.ascontiguousarray(rows[:, 1:]).view(np.float32)
 
 
 def read_ivecs(path: Path) -> np.ndarray:
@@ -107,7 +107,7 @@ def exact_knn(base: np.ndarray, queries: np.ndarray, k: int, metric: str,
     if block is None:  # keep the (block x n) distance matrix around 400 MB
         block = max(1, min(1024, int(1e8 // max(1, base.shape[0]))))
     shortlist = min(base.shape[0], 2 * k + 16)
-    base_sq = (base.astype(np.float64) ** 2).sum(axis=1).astype(np.float32)
+    base_sq = np.einsum("ij,ij->i", base, base)  # float32, no full-size temporary
     out = np.empty((queries.shape[0], k), dtype=np.int32)
     t0 = time.time()
     for s in range(0, queries.shape[0], block):
@@ -226,8 +226,10 @@ def synthetic(dim: int, n: int, nq: int, seed: int, intrinsic: int = 24,
             m = min(step, count - s)
             c = rng.choice(clusters, size=m, p=weights)
             z = rng.normal(0.0, 1.0, size=(m, intrinsic)).astype(np.float32)
-            x = centers[c] + np.einsum("ni,nid->nd", z, bases[c], optimize=True)
-            x += rng.normal(0.0, 0.05, size=(m, dim)).astype(np.float32)
+            x = centers[c] + rng.normal(0.0, 0.05, size=(m, dim)).astype(np.float32)
+            for j in np.unique(c):  # per-cluster matmul: no (m, intrinsic, dim) gather
+                rows = np.flatnonzero(c == j)
+                x[rows] += z[rows] @ bases[j]
             out[s:s + m] = x
         return out
 
