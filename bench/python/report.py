@@ -142,7 +142,11 @@ def main() -> int:
           f"{e.get('compiler', '?')}; hnswlib {e.get('hnswlib', '?')}, faiss-cpu {e.get('faiss-cpu', '?')}; "
           f"commit `{e.get('commit', '?')[:7]}`")
     sl = slower(data)
-    k128 = (k.get("BM_L2/scalar/128"), k.get("BM_L2/avx2/128"), k.get("BM_L2/avx512/128"))
+    # SIMD ISAs actually measured on this machine (x86: AVX2/AVX-512, ARM: NEON).
+    isas = [i for i in ("avx2", "avx512", "neon") if f"BM_L2/{i}/128" in k]
+    ISA_NAME = {"scalar": "scalar", "avx2": "AVX2", "avx512": "AVX-512", "neon": "NEON"}
+    simd1 = isas[0] if isas else None
+    k_scalar = k.get("BM_L2/scalar/128")
     sc_txt = ""
     if sc:
         t1, tn = f(sc[0]["build_s"]), f(sc[-1]["build_s"])
@@ -169,9 +173,9 @@ def main() -> int:
                f"{f(build['hnswlib']['index_bytes']) / 2**20:.0f}, FAISS {f(build['faiss']['index_bytes']) / 2**20:.0f})."]
     if abl:
         md += ["", f"**Where the speed comes from** ({SIFT}, ef = 64):", ""] + abl
-    if all(k128):
-        md += ["", f"Distance kernel alone (L2, d = 128): scalar {k128[0]:.1f} ns, AVX2 {k128[1]:.1f} ns "
-               f"({k128[0] / k128[1]:.1f}×), AVX-512 {k128[2]:.1f} ns ({k128[0] / k128[2]:.1f}×). {sc_txt}"]
+    if k_scalar and isas:
+        parts = [f"{ISA_NAME[i]} {k[f'BM_L2/{i}/128']:.1f} ns ({k_scalar / k[f'BM_L2/{i}/128']:.1f}×)" for i in isas]
+        md += ["", f"Distance kernel alone (L2, d = 128): scalar {k_scalar:.1f} ns, " + ", ".join(parts) + f". {sc_txt}"]
     if sl:
         md += ["", "**Where it is slower** (every case where another library beats the engine at a target):", ""]
         md += [f"* {s}" for s in sl]
@@ -212,10 +216,10 @@ def main() -> int:
     if k:
         dims = (16, 100, 128, 384, 768, 960, 1024)
         b += ["### Kernel microbenchmarks (Google Benchmark, ns per call)", "",
-              "| dim | scalar L2 | AVX2 L2 | AVX-512 L2 | scalar dot | AVX2 dot | AVX-512 dot |",
-              "|---:|---:|---:|---:|---:|---:|---:|"]
+              "| dim | " + " | ".join(f"{ISA_NAME[i]} {fn}" for fn in ("L2", "dot") for i in ["scalar"] + isas) + " |",
+              "|---:|" + "---:|" * (2 * (1 + len(isas)))]
         for d in dims:
-            vals = [k.get(f"BM_{fn}/{isa}/{d}", math.nan) for fn in ("L2", "Dot") for isa in ("scalar", "avx2", "avx512")]
+            vals = [k.get(f"BM_{fn}/{isa}/{d}", math.nan) for fn in ("L2", "Dot") for isa in ["scalar"] + isas]
             b.append(f"| {d} | " + " | ".join(f"{v:.1f}" for v in vals) + " |")
         b.append("")
     rc = rows("recheck_synth-glove_batch.csv")
@@ -242,7 +246,7 @@ def main() -> int:
           "A/B test on a 200k subset (no measurable recall change): passing only the closest node instead of",
           "the whole result set W to the next layer, and skipping the heuristic when fewer than M candidates",
           "exist (both hnswlib behaviours). The cause is still open.", ""]
-    if sift and GIST in data and build:
+    if sift and GIST in data and build and k_scalar and simd1:
         gist = data[GIST]
         s95 = {l: best(sift, l, "single", 0.95) for l in LIBS}
         s99 = {l: best(sift, l, "single", 0.99) for l in LIBS}
@@ -250,7 +254,7 @@ def main() -> int:
         b += [f"## Resume-ready summary (measured; {'SIFT-1M / GIST-1M' if REAL else 'synthetic SIFT/GIST-shaped data'})", "",
               "* Built an HNSW vector search engine from scratch in C++20 (Malkov & Yashunin, Algorithms 1–5) "
               "with AVX2/AVX-512/NEON kernels and runtime CPU dispatch: "
-              f"**{k128[0] / k128[1]:.1f}× faster L2 kernel** (AVX2 vs scalar, d = 128) and "
+              f"**{k_scalar / k[f'BM_L2/{simd1}/128']:.1f}× faster L2 kernel** ({ISA_NAME[simd1]} vs scalar, d = 128) and "
               f"**{abq.get('+prefetch', math.nan) / abq.get('scalar kernels (no prefetch)', math.nan):.1f}× single-thread "
               "QPS from SIMD + prefetching** at identical recall (1M × 128).",
               f"* 1M × 128 L2, recall@10 ≥ 0.95, single thread: **{n0(s95['engine'])} QPS vs hnswlib "

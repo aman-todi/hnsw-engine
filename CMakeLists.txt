@@ -34,7 +34,18 @@ if(HNSW_SANITIZE)
 endif()
 
 if(HNSW_NATIVE)
-  add_compile_options(-march=native)
+  # x86: -march=native. AArch64 (incl. Apple Silicon): -mcpu=native, which not
+  # every Apple Clang accepts; fall back to the default target if unsupported.
+  include(CheckCXXCompilerFlag)
+  check_cxx_compiler_flag(-march=native HNSW_HAS_MARCH_NATIVE)
+  check_cxx_compiler_flag(-mcpu=native HNSW_HAS_MCPU_NATIVE)
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$" AND HNSW_HAS_MCPU_NATIVE)
+    add_compile_options(-mcpu=native)
+  elseif(HNSW_HAS_MARCH_NATIVE)
+    add_compile_options(-march=native)
+  else()
+    message(WARNING "HNSW_NATIVE: compiler accepts neither -march=native nor -mcpu=native")
+  endif()
 endif()
 
 # ---------------------------------------------------------------------------
