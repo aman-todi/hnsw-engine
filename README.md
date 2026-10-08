@@ -118,7 +118,7 @@ The full pipeline (all datasets, ablation, scaling, filters, plots) is
 ## Results
 
 <!-- results:begin -->
-Measured by `scripts/run_all_benchmarks.sh --synthetic` on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 (threads used: 4), 15 GB RAM; c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0; hnswlib 0.8.0, faiss-cpu 1.15.1; commit `ca19d78`. M = 16, ef_construction = 200, k = 10, 4 threads. **Synthetic data shaped like the standard sets — not SIFT/GloVe/GIST results.** Full tables, methodology, run-to-run variance and raw CSVs: [docs/BENCHMARKS.md](docs/BENCHMARKS.md), `bench/results/`.
+Measured by `scripts/run_all_benchmarks.sh --synthetic` on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 (threads used: 4), 15 GB RAM; c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0; hnswlib 0.8.0, faiss-cpu 1.15.1; commit `ca19d78`. M = 16, ef_construction = 200, k = 10, 4 threads. **Synthetic data shaped like the standard sets — not SIFT/GloVe/GIST results.** Full tables, methodology and raw CSVs: [docs/BENCHMARKS.md](docs/BENCHMARKS.md), `bench/results/`.
 
 ![recall vs QPS on synth-sift](bench/results/synth-sift.png)
 
@@ -133,9 +133,9 @@ Measured by `scripts/run_all_benchmarks.sh --synthetic` on Intel(R) Xeon(R) Proc
 | synth-gist (200,000 × 960, l2) | ≥ 0.95 | **1,344** | 838 | 850 |
 | synth-gist (200,000 × 960, l2) | ≥ 0.99 | **760** | 454 | 681 |
 
-**Build** (synth-sift, 1M): 132 s on 4 threads / 570 s on 1 thread, vs hnswlib 171 s / 722 s and FAISS 196 s / 791 s. Index file 628 MB (hnswlib 630, FAISS 626).
+**Build** (synth-sift, 1,000,000 vectors): 132 s on 4 threads / 570 s on 1 thread, vs hnswlib 171 s / 722 s and FAISS 196 s / 791 s. Index file 628 MB (hnswlib 630, FAISS 626).
 
-**Where the speed comes from** (synth-sift 1M, ef = 64):
+**Where the speed comes from** (synth-sift, ef = 64):
 
 | configuration (C++ harness, same graph) | recall@10 | QPS | vs scalar |
 |---|---:|---:|---:|

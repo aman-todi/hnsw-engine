@@ -19,7 +19,11 @@ REPO = Path(__file__).resolve().parents[2]
 RES = REPO / "bench" / "results"
 NAMES = {"engine": "hnsw-engine", "hnswlib": "hnswlib", "faiss": "FAISS HNSWFlat"}
 LIBS = ("engine", "hnswlib", "faiss")
-DATASETS = ("synth-sift", "synth-glove", "synth-gist")
+# Real ann-benchmarks datasets win over the synthetic stand-ins when both exist.
+REAL = all((RES / f"{d}.csv").exists() for d in ("sift", "glove", "gist"))
+P = "" if REAL else "synth-"
+SIFT, GLOVE, GIST = f"{P}sift", f"{P}glove", f"{P}gist"
+DATASETS = (SIFT, GLOVE, GIST)
 
 
 def rows(name: str) -> list[dict]:
@@ -132,7 +136,7 @@ def main() -> int:
     k = kernels()
     abl, abq = ablation_table()
     sc = scaling()
-    sift = data.get("synth-sift", [])
+    sift = data.get(SIFT, [])
     build = {r["library"]: r for r in sift} if sift else {}
     hw = (f"{e.get('cpu', '?')}, {e.get('cores', '?')}, {e.get('memory', '?')} RAM; "
           f"{e.get('compiler', '?')}; hnswlib {e.get('hnswlib', '?')}, faiss-cpu {e.get('faiss-cpu', '?')}; "
@@ -147,33 +151,36 @@ def main() -> int:
                   f"{f(sc[0]['recall']):.4f} → {f(sc[-1]['recall']):.4f}).")
 
     # ------------------------------------------------------------------ README
-    md = [f"Measured by `scripts/run_all_benchmarks.sh --synthetic` on {hw}. M = 16, "
-          "ef_construction = 200, k = 10, 4 threads. **Synthetic data shaped like the standard sets — "
-          "not SIFT/GloVe/GIST results.** Full tables, methodology, run-to-run variance and raw CSVs: "
+    data_note = ("Real ann-benchmarks datasets (SIFT-1M, GloVe-100, GIST-1M)." if REAL else
+                 "**Synthetic data shaped like the standard sets — not SIFT/GloVe/GIST results.**")
+    md = [f"Measured by `scripts/run_all_benchmarks.sh{'' if REAL else ' --synthetic'}` on {hw}. M = 16, "
+          f"ef_construction = 200, k = 10, {e.get('cores', '?').split('(')[-1].rstrip(')').replace('threads used: ', '')} "
+          f"threads. {data_note} Full tables, methodology and raw CSVs: "
           "[docs/BENCHMARKS.md](docs/BENCHMARKS.md), `bench/results/`.", "",
-          "![recall vs QPS on synth-sift](bench/results/synth-sift.png)", "",
+          f"![recall vs QPS on {SIFT}](bench/results/{SIFT}.png)", "",
           "**Best single-thread QPS at a recall target** (one query per Python call; bold = fastest):", ""]
     md += qps_table(data, "single")
     if build:
-        md += ["", f"**Build** (synth-sift, 1M): {f(build['engine']['build_s']):.0f} s on 4 threads / "
+        md += ["", f"**Build** ({SIFT}, {int(sift[0]['n']):,} vectors): {f(build['engine']['build_s']):.0f} s on 4 threads / "
                f"{f(build['engine']['build_1t_s']):.0f} s on 1 thread, vs hnswlib "
                f"{f(build['hnswlib']['build_s']):.0f} s / {f(build['hnswlib']['build_1t_s']):.0f} s and FAISS "
                f"{f(build['faiss']['build_s']):.0f} s / {f(build['faiss']['build_1t_s']):.0f} s. Index file "
                f"{f(build['engine']['index_bytes']) / 2**20:.0f} MB (hnswlib "
                f"{f(build['hnswlib']['index_bytes']) / 2**20:.0f}, FAISS {f(build['faiss']['index_bytes']) / 2**20:.0f})."]
     if abl:
-        md += ["", "**Where the speed comes from** (synth-sift 1M, ef = 64):", ""] + abl
+        md += ["", f"**Where the speed comes from** ({SIFT}, ef = 64):", ""] + abl
     if all(k128):
         md += ["", f"Distance kernel alone (L2, d = 128): scalar {k128[0]:.1f} ns, AVX2 {k128[1]:.1f} ns "
                f"({k128[0] / k128[1]:.1f}×), AVX-512 {k128[2]:.1f} ns ({k128[0] / k128[2]:.1f}×). {sc_txt}"]
     if sl:
         md += ["", "**Where it is slower** (every case where another library beats the engine at a target):", ""]
         md += [f"* {s}" for s in sl]
-        md += ["", "Batched (4-thread) throughput on this shared VM varied by up to ~30% between runs "
-               "and single-thread by up to ~16% (see the variance section in BENCHMARKS.md, including a "
-               "synth-glove re-check where the engine was ahead), so only gaps larger than that are meaningful."]
-    if sift:
-        md += ["", f"On synth-sift the engine's recall saturates a little lower at very high ef "
+        if not REAL:
+            md += ["", "Batched (4-thread) throughput on this shared VM varied by up to ~30% between runs "
+                   "and single-thread by up to ~16% (see the variance section in BENCHMARKS.md, including a "
+                   "synth-glove re-check where the engine was ahead), so only gaps larger than that are meaningful."]
+    if sift and ceiling(sift, "engine") < ceiling(sift, "hnswlib"):
+        md += ["", f"On {SIFT} the engine's recall saturates a little lower at very high ef "
                f"(max {ceiling(sift, 'engine'):.4f} vs hnswlib {ceiling(sift, 'hnswlib'):.4f} at ef = 640), "
                "which is what costs it the ≥ 0.99 target there; this is an open item (see BENCHMARKS.md)."]
     replace(REPO / "README.md", "results", "\n".join(md))
@@ -183,20 +190,20 @@ def main() -> int:
             "```\n" + (RES / "environment.txt").read_text().strip() + "\n```")
     summary = (RES / "summary.md").read_text().split("\n", 2)[2]
     summary = re.sub(r"^## ", "### ", summary, flags=re.M)
-    b = ["![synth-sift](../bench/results/synth-sift.png)", "![synth-glove](../bench/results/synth-glove.png)",
-         "![synth-gist](../bench/results/synth-gist.png)", "", summary.strip(), "",
+    b = [f"![{d}](../bench/results/{d}.png)" for d in DATASETS if d in data]
+    b += ["", summary.strip(), "",
          "Notes on the tables:", "",
          "* Ablation and scaling rows come from the C++ harness (`bench_main`). The ablation loads one",
          "  pre-built index, so every row searches the identical graph (identical recall); the last row is",
          "  batched, so it has no per-query latency.",
-         "* synth-gist peak RSS is dominated by loading the 960-d dataset in each worker, so it is the same",
+         f"* {GIST} peak RSS is dominated by loading the 960-d dataset in each worker, so it is the same",
          "  for all three libraries; compare the RSS-growth column instead.",
-         "* Brute force on synth-sift (1M vectors, 1,000 queries) reaches recall "
+         f"* Brute force on {SIFT} (1,000 queries) reaches recall "
          f"{f(rows('bruteforce.csv')[0]['recall']) if rows('bruteforce.csv') else math.nan:.5f} against "
-         "the NumPy ground truth (`bruteforce.csv`), validating the harness.", ""]
+         f"the {'provided' if REAL else 'NumPy'} ground truth (`bruteforce.csv`), validating the harness.", ""]
     fl = rows("filter.csv")
     if fl:
-        b += ["### Filtered search (engine, synth-sift 200k subset, random allow-lists, 4 threads)", "",
+        b += [f"### Filtered search (engine, {fl[0]['dataset']}, random allow-lists)", "",
               "| allowed | ef | recall@10 | QPS | filter violations |", "|---:|---:|---:|---:|---:|"]
         b += [f"| {f(r['selectivity']) * 100:.0f}% | {r['ef']} | {f(r['recall']):.4f} | {n0(f(r['qps']))} | "
               f"{r['violations']} |" for r in fl]
@@ -212,12 +219,13 @@ def main() -> int:
             b.append(f"| {d} | " + " | ".join(f"{v:.1f}" for v in vals) + " |")
         b.append("")
     rc = rows("recheck_synth-glove_batch.csv")
-    b += ["### Run-to-run variance", "",
+    if not REAL:
+      b += ["### Run-to-run variance", "",
           "The benchmark machine is a shared 4-core cloud VM. Comparing two complete runs of the pipeline",
           "(same code for hnswlib/FAISS, recall identical to 4 decimals), single-thread QPS for the same",
           "library moved by up to ~16% (hnswlib, synth-sift, recall ≥ 0.95: 2,167 vs 2,508) and batched",
           "4-thread QPS by up to ~30%. Differences smaller than that are not meaningful on this machine."]
-    if rc and "synth-glove" in data:
+    if not REAL and rc and "synth-glove" in data:
         full = data["synth-glove"]
         b += ["For example, synth-glove batched at ef = 40:", "",
               "| library | full run QPS | re-check QPS (`recheck_synth-glove_batch.csv`) |", "|---|---:|---:|"]
@@ -226,19 +234,20 @@ def main() -> int:
             c = next((f(r["qps"]) for r in rc if r["library"] == lib and r["ef"] == "40"), math.nan)
             b.append(f"| {NAMES[lib]} | {n0(a)} | {n0(c)} |")
         b += ["", "Rerun on a dedicated host for publishable throughput numbers."]
-    b += ["", "### Open item: high-recall ceiling on synth-sift", "",
+    if not REAL:
+      b += ["", "### Open item: high-recall ceiling on synth-sift", "",
           "At ef = 640 the engine reaches lower recall than hnswlib on synth-sift "
           f"({ceiling(sift, 'engine'):.4f} vs {ceiling(sift, 'hnswlib'):.4f}), although it matches or",
           "exceeds hnswlib's recall on synth-glove and synth-gist. Two candidate causes were ruled out by an",
           "A/B test on a 200k subset (no measurable recall change): passing only the closest node instead of",
           "the whole result set W to the next layer, and skipping the heuristic when fewer than M candidates",
           "exist (both hnswlib behaviours). The cause is still open.", ""]
-    if sift and "synth-gist" in data:
-        gist = data["synth-gist"]
+    if sift and GIST in data and build:
+        gist = data[GIST]
         s95 = {l: best(sift, l, "single", 0.95) for l in LIBS}
         s99 = {l: best(sift, l, "single", 0.99) for l in LIBS}
         g95 = {l: best(gist, l, "single", 0.95) for l in LIBS}
-        b += ["## Resume-ready summary (measured; synthetic SIFT/GIST-shaped data)", "",
+        b += [f"## Resume-ready summary (measured; {'SIFT-1M / GIST-1M' if REAL else 'synthetic SIFT/GIST-shaped data'})", "",
               "* Built an HNSW vector search engine from scratch in C++20 (Malkov & Yashunin, Algorithms 1–5) "
               "with AVX2/AVX-512/NEON kernels and runtime CPU dispatch: "
               f"**{k128[0] / k128[1]:.1f}× faster L2 kernel** (AVX2 vs scalar, d = 128) and "
@@ -246,7 +255,8 @@ def main() -> int:
               "QPS from SIMD + prefetching** at identical recall (1M × 128).",
               f"* 1M × 128 L2, recall@10 ≥ 0.95, single thread: **{n0(s95['engine'])} QPS vs hnswlib "
               f"{n0(s95['hnswlib'])} ({pct(s95['engine'], s95['hnswlib'])}) and FAISS HNSWFlat {n0(s95['faiss'])} "
-              f"({pct(s95['engine'], s95['faiss'])})** — on par with hnswlib within this VM's ~16% run-to-run noise; "
+              f"({pct(s95['engine'], s95['faiss'])})**"
+              f"{'' if REAL else ' — on par with hnswlib within this VM’s ~16% run-to-run noise'}; "
               f"200k × 960: **{pct(g95['engine'], g95['hnswlib'])} vs hnswlib**. "
               f"Slower at recall ≥ 0.99 on 1M × 128 ({pct(s99['engine'], s99['hnswlib'])} vs hnswlib).",
               f"* {sc_txt.replace('Parallel build:', 'Parallel build scales')} 1M-vector build in "

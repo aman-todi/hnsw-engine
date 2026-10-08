@@ -132,7 +132,12 @@ def main() -> int:
     args = p.parse_args()
     res = Path(args.results)
     per_dataset: dict[str, list[dict]] = defaultdict(list)
+    # Use the real ann-benchmarks results when present, else the synthetic ones;
+    # re-check runs are supplementary and not datasets of their own.
+    real = all((res / f"{d}.csv").exists() for d in ("sift", "glove", "gist"))
     for f in sorted(res.glob("*.csv")):
+        if f.stem.startswith("recheck_") or (real and f.stem.startswith("synth-")):
+            continue
         rows = read_csv(f)
         if rows and "library" in rows[0]:
             per_dataset[f.stem] = rows

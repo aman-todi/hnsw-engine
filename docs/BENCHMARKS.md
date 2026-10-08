@@ -267,9 +267,9 @@ Notes on the tables:
   batched, so it has no per-query latency.
 * synth-gist peak RSS is dominated by loading the 960-d dataset in each worker, so it is the same
   for all three libraries; compare the RSS-growth column instead.
-* Brute force on synth-sift (1M vectors, 1,000 queries) reaches recall 1.00000 against the NumPy ground truth (`bruteforce.csv`), validating the harness.
+* Brute force on synth-sift (1,000 queries) reaches recall 1.00000 against the NumPy ground truth (`bruteforce.csv`), validating the harness.
 
-### Filtered search (engine, synth-sift 200k subset, random allow-lists, 4 threads)
+### Filtered search (engine, synth-sift[:200000], random allow-lists)
 
 | allowed | ef | recall@10 | QPS | filter violations |
 |---:|---:|---:|---:|---:|
@@ -331,7 +331,7 @@ exist (both hnswlib behaviours). The cause is still open.
 ## Resume-ready summary (measured; synthetic SIFT/GIST-shaped data)
 
 * Built an HNSW vector search engine from scratch in C++20 (Malkov & Yashunin, Algorithms 1–5) with AVX2/AVX-512/NEON kernels and runtime CPU dispatch: **7.6× faster L2 kernel** (AVX2 vs scalar, d = 128) and **2.4× single-thread QPS from SIMD + prefetching** at identical recall (1M × 128).
-* 1M × 128 L2, recall@10 ≥ 0.95, single thread: **2,708 QPS vs hnswlib 2,508 (+8%) and FAISS HNSWFlat 1,966 (+38%)** — on par with hnswlib within this VM's ~16% run-to-run noise; 200k × 960: **+60% vs hnswlib**. Slower at recall ≥ 0.99 on 1M × 128 (-37% vs hnswlib).
+* 1M × 128 L2, recall@10 ≥ 0.95, single thread: **2,708 QPS vs hnswlib 2,508 (+8%) and FAISS HNSWFlat 1,966 (+38%)** — on par with hnswlib within this VM’s ~16% run-to-run noise; 200k × 960: **+60% vs hnswlib**. Slower at recall ≥ 0.99 on 1M × 128 (-37% vs hnswlib).
 * Parallel build scales 4.0× on 4 threads (200,000 vectors: 67.0 s → 16.8 s; recall@10 at ef=64 0.9945 → 0.9944). 1M-vector build in 132 s on 4 threads (hnswlib 171 s, FAISS 196 s) at the same index size.
 * Memory-mapped, checksummed on-disk format whose loader rejects every truncated or bit-flipped file in fuzz tests; ASan/UBSan- and TSan-clean; GoogleTest + pytest suites; pybind11 package that releases the GIL and matches the C++ results exactly.
 <!-- results:end -->
