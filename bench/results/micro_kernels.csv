@@ -1,18 +1,18 @@
 name,iterations,real_time,cpu_time,time_unit,bytes_per_second,items_per_second,label,error_occurred,error_message,"GFLOP/s"
-"BM_L2/scalar/16",137463793,2.18618,2.11284,ns,,4.73297e+08,,,,2.27182e+10
-"BM_L2/scalar/100",15919855,17.5588,17.553,ns,,5.69704e+07,,,,1.70911e+10
-"BM_L2/scalar/128",10650843,26.3029,26.2942,ns,,3.80313e+07,,,,1.4604e+10
-"BM_L2/scalar/384",2508713,112.547,112.434,ns,,8.89413e+06,,,,1.0246e+10
-"BM_L2/scalar/768",968758,288.929,288.816,ns,,3.46241e+06,,,,7.97739e+09
-"BM_L2/scalar/960",734657,381.232,380.998,ns,,2.62468e+06,,,,7.55909e+09
-"BM_L2/scalar/1024",681862,410.37,410.249,ns,,2.43755e+06,,,,7.48814e+09
-"BM_L2/avx2/16",,,,,,,,true,"ISA not supported"
-"BM_L2/avx2/100",,,,,,,,true,"ISA not supported"
-"BM_L2/avx2/128",,,,,,,,true,"ISA not supported"
-"BM_L2/avx2/384",,,,,,,,true,"ISA not supported"
-"BM_L2/avx2/768",,,,,,,,true,"ISA not supported"
-"BM_L2/avx2/960",,,,,,,,true,"ISA not supported"
-"BM_L2/avx2/1024",,,,,,,,true,"ISA not supported"
+"BM_L2/scalar/16",81855965,3.55668,3.5566,ns,,2.81168e+08,,,,1.3496e+10
+"BM_L2/scalar/100",11223510,24.4983,24.4969,ns,,4.08215e+07,,,,1.22464e+10
+"BM_L2/scalar/128",8591353,33.8044,33.8024,ns,,2.95837e+07,,,,1.13601e+10
+"BM_L2/scalar/384",2147420,125.61,125.597,ns,,7.96197e+06,,,,9.17219e+09
+"BM_L2/scalar/768",966478,292.679,292.671,ns,,3.41681e+06,,,,7.87232e+09
+"BM_L2/scalar/960",752771,379.666,379.65,ns,,2.634e+06,,,,7.58593e+09
+"BM_L2/scalar/1024",682769,417.016,416.992,ns,,2.39813e+06,,,,7.36704e+09
+"BM_L2/avx2/16",87252780,2.99668,2.99671,ns,,3.337e+08,,,,1.60176e+10
+"BM_L2/avx2/100",53388767,5.52321,5.52295,ns,,1.81063e+08,,,,5.43188e+10
+"BM_L2/avx2/128",45763126,5.83816,5.83764,ns,,1.71302e+08,,,,6.578e+10
+"BM_L2/avx2/384",20675836,15.1945,15.1944,ns,,6.58136e+07,,,,7.58172e+10
+"BM_L2/avx2/768",9968588,27.7807,27.7782,ns,,3.59994e+07,,,,8.29427e+10
+"BM_L2/avx2/960",8000294,32.5095,32.5069,ns,,3.07627e+07,,,,8.85965e+10
+"BM_L2/avx2/1024",8112765,34.9994,34.9997,ns,,2.85716e+07,,,,8.77721e+10
 "BM_L2/avx512/16",,,,,,,,true,"ISA not supported"
 "BM_L2/avx512/100",,,,,,,,true,"ISA not supported"
 "BM_L2/avx512/128",,,,,,,,true,"ISA not supported"
@@ -20,27 +20,27 @@ name,iterations,real_time,cpu_time,time_unit,bytes_per_second,items_per_second,l
 "BM_L2/avx512/768",,,,,,,,true,"ISA not supported"
 "BM_L2/avx512/960",,,,,,,,true,"ISA not supported"
 "BM_L2/avx512/1024",,,,,,,,true,"ISA not supported"
-"BM_L2/neon/16",199033267,1.37777,1.37721,ns,,7.26105e+08,,,,3.4853e+10
-"BM_L2/neon/100",67409779,4.25928,4.2579,ns,,2.34858e+08,,,,7.04573e+10
-"BM_L2/neon/128",53255226,5.24367,5.24189,ns,,1.90771e+08,,,,7.3256e+10
-"BM_L2/neon/384",17810798,15.6929,15.687,ns,,6.3747e+07,,,,7.34366e+10
-"BM_L2/neon/768",8404875,33.4287,33.4167,ns,,2.99252e+07,,,,6.89476e+10
-"BM_L2/neon/960",6589941,42.3279,42.3134,ns,,2.36332e+07,,,,6.80635e+10
-"BM_L2/neon/1024",6165228,45.9969,45.9798,ns,,2.17487e+07,,,,6.68119e+10
-"BM_Dot/scalar/16",154667079,1.79836,1.79767,ns,,5.56276e+08,,,,
-"BM_Dot/scalar/100",16900456,16.4201,16.4152,ns,,6.0919e+07,,,,
-"BM_Dot/scalar/128",12241507,22.8832,22.8759,ns,,4.37142e+07,,,,
-"BM_Dot/scalar/384",2588662,108.236,108.201,ns,,9.24209e+06,,,,
-"BM_Dot/scalar/768",1007738,277.864,277.776,ns,,3.60003e+06,,,,
-"BM_Dot/scalar/960",760932,374.14,373.237,ns,,2.67926e+06,,,,
-"BM_Dot/scalar/1024",700280,417.058,412.131,ns,,2.42641e+06,,,,
-"BM_Dot/avx2/16",,,,,,,,true,"ISA not supported"
-"BM_Dot/avx2/100",,,,,,,,true,"ISA not supported"
-"BM_Dot/avx2/128",,,,,,,,true,"ISA not supported"
-"BM_Dot/avx2/384",,,,,,,,true,"ISA not supported"
-"BM_Dot/avx2/768",,,,,,,,true,"ISA not supported"
-"BM_Dot/avx2/960",,,,,,,,true,"ISA not supported"
-"BM_Dot/avx2/1024",,,,,,,,true,"ISA not supported"
+"BM_L2/neon/16",,,,,,,,true,"ISA not supported"
+"BM_L2/neon/100",,,,,,,,true,"ISA not supported"
+"BM_L2/neon/128",,,,,,,,true,"ISA not supported"
+"BM_L2/neon/384",,,,,,,,true,"ISA not supported"
+"BM_L2/neon/768",,,,,,,,true,"ISA not supported"
+"BM_L2/neon/960",,,,,,,,true,"ISA not supported"
+"BM_L2/neon/1024",,,,,,,,true,"ISA not supported"
+"BM_Dot/scalar/16",74896776,3.64471,3.64459,ns,,2.74379e+08,,,,
+"BM_Dot/scalar/100",11126967,23.1561,23.1553,ns,,4.31866e+07,,,,
+"BM_Dot/scalar/128",9646363,30.9387,30.9383,ns,,3.23224e+07,,,,
+"BM_Dot/scalar/384",2232241,124.613,124.608,ns,,8.02517e+06,,,,
+"BM_Dot/scalar/768",1018465,280.908,276.416,ns,,3.61774e+06,,,,
+"BM_Dot/scalar/960",778954,362.318,362.322,ns,,2.75998e+06,,,,
+"BM_Dot/scalar/1024",716040,383.346,383.326,ns,,2.60874e+06,,,,
+"BM_Dot/avx2/16",99830872,2.60909,2.6083,ns,,3.83392e+08,,,,
+"BM_Dot/avx2/100",54722160,4.91265,4.91242,ns,,2.03566e+08,,,,
+"BM_Dot/avx2/128",58703772,5.18266,5.18236,ns,,1.92962e+08,,,,
+"BM_Dot/avx2/384",25928132,11.6245,11.6215,ns,,8.60472e+07,,,,
+"BM_Dot/avx2/768",13034472,21.9342,21.9336,ns,,4.55922e+07,,,,
+"BM_Dot/avx2/960",10327679,27.0006,26.9988,ns,,3.70386e+07,,,,
+"BM_Dot/avx2/1024",9233655,29.6199,29.6114,ns,,3.37708e+07,,,,
 "BM_Dot/avx512/16",,,,,,,,true,"ISA not supported"
 "BM_Dot/avx512/100",,,,,,,,true,"ISA not supported"
 "BM_Dot/avx512/128",,,,,,,,true,"ISA not supported"
@@ -48,10 +48,10 @@ name,iterations,real_time,cpu_time,time_unit,bytes_per_second,items_per_second,l
 "BM_Dot/avx512/768",,,,,,,,true,"ISA not supported"
 "BM_Dot/avx512/960",,,,,,,,true,"ISA not supported"
 "BM_Dot/avx512/1024",,,,,,,,true,"ISA not supported"
-"BM_Dot/neon/16",202361852,1.17087,1.16751,ns,,8.56522e+08,,,,
-"BM_Dot/neon/100",70578746,4.07486,4.0705,ns,,2.4567e+08,,,,
-"BM_Dot/neon/128",53828556,5.24245,5.23402,ns,,1.91058e+08,,,,
-"BM_Dot/neon/384",18488316,15.1191,15.1093,ns,,6.61845e+07,,,,
-"BM_Dot/neon/768",9115177,31.0375,31.0049,ns,,3.2253e+07,,,,
-"BM_Dot/neon/960",7163324,39.4221,39.3393,ns,,2.54199e+07,,,,
-"BM_Dot/neon/1024",6601905,43.7583,42.9556,ns,,2.32798e+07,,,,
+"BM_Dot/neon/16",,,,,,,,true,"ISA not supported"
+"BM_Dot/neon/100",,,,,,,,true,"ISA not supported"
+"BM_Dot/neon/128",,,,,,,,true,"ISA not supported"
+"BM_Dot/neon/384",,,,,,,,true,"ISA not supported"
+"BM_Dot/neon/768",,,,,,,,true,"ISA not supported"
+"BM_Dot/neon/960",,,,,,,,true,"ISA not supported"
+"BM_Dot/neon/1024",,,,,,,,true,"ISA not supported"

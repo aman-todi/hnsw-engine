@@ -1,12 +1,13 @@
-commit: 0daf0bc3ff2198cb690d3df9e23b2a754307e929
-date: 2026-10-09T00:33Z
-cpu: Apple M5 (4 performance + 6 efficiency cores)
-cores: 10 (threads used: 4)
-memory: 16 GB
-os: Darwin 25.6.0 arm64
-compiler: Apple clang version 21.0.0 (clang-2100.1.1.101)
-python: Python 3.9.6
+commit: b45cca4a47536ba9bf56b9fbfa9badb129eb0758
+date: 2026-10-09T16:00Z
+cpu: 13th Gen Intel(R) Core(TM) i7-13800H
+cores: 20 (threads used: 6)
+memory: 15 GB
+os: Linux 6.18.40.1-microsoft-standard-WSL2 x86_64
+rss_growth: proc
+compiler: c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+python: Python 3.12.3
 hnswlib: 0.8.0
-faiss-cpu: 1.13.0
-numpy: 2.0.2
-engine simd: neon
+faiss-cpu: 1.15.1
+numpy: 2.5.3
+engine simd: avx2

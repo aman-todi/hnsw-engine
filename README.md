@@ -117,7 +117,7 @@ stand-ins when ann-benchmarks.com is unreachable.
 ## Results
 
 <!-- results:begin -->
-Measured by `scripts/run_all_benchmarks.sh` on Apple M5 (4 performance + 6 efficiency cores), 10 cores, 16 GB RAM; Apple clang version 21.0.0 (clang-2100.1.1.101); hnswlib 0.8.0, faiss-cpu 1.13.0; commit `0daf0bc`. M = 16, ef_construction = 200, k = 10, 4 threads. Real ann-benchmarks datasets (SIFT-1M, GloVe-100, GIST-1M). Full tables, methodology and raw CSVs: [docs/BENCHMARKS.md](docs/BENCHMARKS.md), `bench/results/`.
+Measured by `scripts/run_all_benchmarks.sh` on 13th Gen Intel(R) Core(TM) i7-13800H, 20 cores, 15 GB RAM; c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0; hnswlib 0.8.0, faiss-cpu 1.15.1; commit `b45cca4`. M = 16, ef_construction = 200, k = 10, 6 threads. Real ann-benchmarks datasets (SIFT-1M, GloVe-100, GIST-1M). Full tables, methodology and raw CSVs: [docs/BENCHMARKS.md](docs/BENCHMARKS.md), `bench/results/`.
 
 ![recall vs QPS on sift](bench/results/sift.png)
 
@@ -125,36 +125,33 @@ Measured by `scripts/run_all_benchmarks.sh` on Apple M5 (4 performance + 6 effic
 
 | dataset | recall@10 target | hnsw-engine | hnswlib | FAISS HNSWFlat |
 |---|---|---:|---:|---:|
-| sift (1,000,000 × 128, l2) | ≥ 0.90 | **21,666** | 11,127 | 17,884 |
-| sift (1,000,000 × 128, l2) | ≥ 0.95 | **12,414** | 6,424 | 10,062 |
-| sift (1,000,000 × 128, l2) | ≥ 0.99 | **6,910** | 3,608 | 5,419 |
-| glove (1,183,514 × 100, cosine) | ≥ 0.90 | 1,705 | 1,144 | **2,437** |
-| gist (200,000 × 960, l2) | ≥ 0.90 | 1,685 | 770 | **2,300** |
-| gist (200,000 × 960, l2) | ≥ 0.95 | 1,685 | 770 | **2,300** |
-| gist (200,000 × 960, l2) | ≥ 0.99 | 559 | 263 | **680** |
+| sift (1,000,000 × 128, l2) | ≥ 0.90 | **15,660** | 14,294 | 12,230 |
+| sift (1,000,000 × 128, l2) | ≥ 0.95 | **9,200** | 8,117 | 6,900 |
+| sift (1,000,000 × 128, l2) | ≥ 0.99 | **5,137** | 4,624 | 3,786 |
+| glove (1,183,514 × 100, cosine) | ≥ 0.90 | **1,268** | 1,211 | 890 |
+| gist (200,000 × 960, l2) | ≥ 0.90 | 1,348 | 1,171 | **1,660** |
+| gist (200,000 × 960, l2) | ≥ 0.95 | 782 | 1,171 | **1,660** |
+| gist (200,000 × 960, l2) | ≥ 0.99 | **486** | 404 | — |
 
-**Build** (sift, 1,000,000 vectors): 42 s on 4 threads / 154 s on 1 thread, vs hnswlib 82 s / 298 s and FAISS 56 s / 198 s. Index file 628 MB (hnswlib 630, FAISS 626).
+**Build** (sift, 1,000,000 vectors): 45 s on 4 threads / 212 s on 1 thread, vs hnswlib 57 s / 264 s and FAISS 67 s / 320 s. Index file 628 MB (hnswlib 630, FAISS 626).
 
 **Where the speed comes from** (sift, ef = 64):
 
 | configuration (C++ harness, same graph) | recall@10 | QPS | vs scalar |
 |---|---:|---:|---:|
-| scalar kernels (no prefetch) | 0.963 | 7,830 | 1.0× |
-| +NEON kernels | 0.963 | 13,878 | 1.8× |
-| +prefetch | 0.963 | 15,234 | 1.9× |
-| +4 search threads | 0.963 | 55,324 | 7.1× |
+| scalar kernels (no prefetch) | 0.963 | 4,288 | 1.0× |
+| +AVX2 kernels | 0.963 | 10,007 | 2.3× |
+| +prefetch | 0.963 | 12,078 | 2.8× |
+| +6 search threads | 0.963 | 55,905 | 13.0× |
 
-Distance kernel alone (L2, d = 128): scalar 26.3 ns, NEON 5.2 ns (5.0×). Parallel build: 3.8× on 4 threads (200,000 vectors: 21.0 s → 5.5 s; recall@10 at ef=64 0.9811 → 0.9810).
+Distance kernel alone (L2, d = 128): scalar 33.8 ns, AVX2 5.8 ns (5.8×). Parallel build: 3.6× on 4 threads (200,000 vectors: 28.8 s → 8.1 s; recall@10 at ef=64 0.9811 → 0.9806).
 
 **Where it is slower** (every case where another library beats the engine at a target):
 
-* glove, single-thread, recall ≥ 0.90: 1,705 vs FAISS HNSWFlat 2,437 QPS (-30%)
-* glove, batched, recall ≥ 0.90: 6,266 vs FAISS HNSWFlat 8,931 QPS (-30%)
-* gist, single-thread, recall ≥ 0.90: 1,685 vs FAISS HNSWFlat 2,300 QPS (-27%)
-* gist, single-thread, recall ≥ 0.95: 1,685 vs FAISS HNSWFlat 2,300 QPS (-27%)
-* gist, single-thread, recall ≥ 0.99: 559 vs FAISS HNSWFlat 680 QPS (-18%)
-
-**On ARM (this run): hnswlib ships hand-written SIMD distance kernels only for x86 (SSE/AVX), so on Apple Silicon its distances use the compiler's generic code path; part of the gap to hnswlib reflects that. FAISS has NEON kernels and is the like-for-like comparison on this machine.**
+* glove, batched, recall ≥ 0.90: 5,537 vs hnswlib 5,675 QPS (-2%)
+* gist, single-thread, recall ≥ 0.90: 1,348 vs FAISS HNSWFlat 1,660 QPS (-19%)
+* gist, single-thread, recall ≥ 0.95: 782 vs FAISS HNSWFlat 1,660 QPS (-53%)
+* gist, batched, recall ≥ 0.95: 3,060 vs FAISS HNSWFlat 5,185 QPS (-41%)
 <!-- results:end -->
 
 ## Testing and quality
