@@ -114,7 +114,10 @@ def exact_knn(base: np.ndarray, queries: np.ndarray, k: int, metric: str,
     t0 = time.time()
     for s in range(0, queries.shape[0], block):
         q = queries[s:s + block]
-        dots = q @ base.T  # (b, n)
+        # NumPy on macOS/Accelerate can raise spurious FP warnings in float32
+        # matmul; the shortlist is re-ranked exactly below and checked finite.
+        with np.errstate(all="ignore"):
+            dots = q @ base.T  # (b, n)
         if metric == "l2":
             score = base_sq[None, :] - 2.0 * dots  # + |q|^2 is constant per row
         else:
@@ -124,10 +127,13 @@ def exact_knn(base: np.ndarray, queries: np.ndarray, k: int, metric: str,
             c = cand[i]
             v = base[c].astype(np.float64)
             qq = q[i].astype(np.float64)
-            if metric == "l2":
-                d = ((v - qq) ** 2).sum(axis=1)
-            else:
-                d = 1.0 - v @ qq
+            with np.errstate(all="ignore"):
+                if metric == "l2":
+                    d = ((v - qq) ** 2).sum(axis=1)
+                else:
+                    d = 1.0 - v @ qq
+            if not np.isfinite(d).all():
+                raise ValueError("non-finite distance in ground-truth computation")
             order = np.lexsort((c, d))[:k]
             out[s + i] = c[order]
         if (s // block) % max(1, queries.shape[0] // block // 10) == 0:

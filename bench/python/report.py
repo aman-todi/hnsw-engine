@@ -72,7 +72,8 @@ def qps_table(data, mode, targets=(0.95, 0.99)) -> list[str]:
     for ds, rs in data.items():
         for t in targets:
             vals = [best(rs, l, mode, t) for l in LIBS]
-            top = max(v for v in vals if not math.isnan(v))
+            reached = [v for v in vals if not math.isnan(v)]
+            top = max(reached) if reached else math.nan  # "—" everywhere if nobody reaches t
             cells = [f"**{n0(v)}**" if v == top else n0(v) for v in vals]
             out.append(f"| {ds} ({describe(rs)}) | ≥ {t:.2f} | " + " | ".join(cells) + " |")
     return out
@@ -204,7 +205,10 @@ def main() -> int:
          "  for all three libraries; compare the RSS-growth column instead.",
          f"* Brute force on {SIFT} (1,000 queries) reaches recall "
          f"{f(rows('bruteforce.csv')[0]['recall']) if rows('bruteforce.csv') else math.nan:.5f} against "
-         f"the {'provided' if REAL else 'NumPy'} ground truth (`bruteforce.csv`), validating the harness.", ""]
+         f"the {'provided' if REAL else 'NumPy'} ground truth (`bruteforce.csv`), validating the harness."
+         + (" Anything below 1.0 comes from exact distance ties (SIFT vectors are integer-valued, so "
+            "neighbours at rank 10 and 11 can be equidistant and either is correct); recall here "
+            "counts id overlap, as the spec defines it." if REAL else ""), ""]
     fl = rows("filter.csv")
     if fl:
         b += [f"### Filtered search (engine, {fl[0]['dataset']}, random allow-lists)", "",
