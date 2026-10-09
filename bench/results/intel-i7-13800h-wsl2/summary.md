@@ -4,21 +4,21 @@
 
 n=200000, dim=960, metric=l2, M=16, ef_construction=200, k=10, threads=6
 
-**Best QPS at recall@10 ≥ threshold (single-thread, one query per call)**
+**QPS at recall@10 target (single-thread, one query per call; interpolated on the recall-QPS curve)**
 
-| library | ≥0.90 | ≥0.95 | ≥0.99 |
+| library | 0.90 | 0.95 | 0.99 |
 |---|---:|---:|---:|
-| hnsw-engine (this) | 1,348 | 782 | 486 |
-| hnswlib | 1,171 | 1,171 | 404 |
-| FAISS HNSWFlat | 1,660 | 1,660 | — |
+| hnsw-engine (this) | 2,410 | 1,341 | 496 |
+| hnswlib | 1,944 | 1,176 | 408 |
+| FAISS HNSWFlat | 2,533 | 1,674 | — |
 
-**Best QPS at recall@10 ≥ threshold (batched, multi-thread)**
+**QPS at recall@10 target (batched, multi-thread; interpolated on the recall-QPS curve)**
 
-| library | ≥0.90 | ≥0.95 | ≥0.99 |
+| library | 0.90 | 0.95 | 0.99 |
 |---|---:|---:|---:|
-| hnsw-engine (this) | 5,462 | 3,060 | 1,759 |
-| hnswlib | 5,013 | 5,013 | 1,650 |
-| FAISS HNSWFlat | 5,185 | 5,185 | — |
+| hnsw-engine (this) | 8,716 | 5,430 | 1,801 |
+| hnswlib | 8,044 | 5,032 | 1,668 |
+| FAISS HNSWFlat | 8,974 | 5,241 | — |
 
 **Recall / QPS / latency per ef (single-thread)**
 
@@ -58,21 +58,21 @@ n=200000, dim=960, metric=l2, M=16, ef_construction=200, k=10, threads=6
 
 n=1183514, dim=100, metric=cosine, M=16, ef_construction=200, k=10, threads=6
 
-**Best QPS at recall@10 ≥ threshold (single-thread, one query per call)**
+**QPS at recall@10 target (single-thread, one query per call; interpolated on the recall-QPS curve)**
 
-| library | ≥0.90 | ≥0.95 | ≥0.99 |
+| library | 0.90 | 0.95 | 0.99 |
 |---|---:|---:|---:|
-| hnsw-engine (this) | 1,268 | — | — |
-| hnswlib | 1,211 | — | — |
-| FAISS HNSWFlat | 890 | — | — |
+| hnsw-engine (this) | 2,363 | — | — |
+| hnswlib | 2,211 | — | — |
+| FAISS HNSWFlat | 1,672 | — | — |
 
-**Best QPS at recall@10 ≥ threshold (batched, multi-thread)**
+**QPS at recall@10 target (batched, multi-thread; interpolated on the recall-QPS curve)**
 
-| library | ≥0.90 | ≥0.95 | ≥0.99 |
+| library | 0.90 | 0.95 | 0.99 |
 |---|---:|---:|---:|
-| hnsw-engine (this) | 5,537 | — | — |
-| hnswlib | 5,675 | — | — |
-| FAISS HNSWFlat | 4,586 | — | — |
+| hnsw-engine (this) | 10,303 | — | — |
+| hnswlib | 10,447 | — | — |
+| FAISS HNSWFlat | 8,659 | — | — |
 
 **Recall / QPS / latency per ef (single-thread)**
 
@@ -112,21 +112,21 @@ n=1183514, dim=100, metric=cosine, M=16, ef_construction=200, k=10, threads=6
 
 n=1000000, dim=128, metric=l2, M=16, ef_construction=200, k=10, threads=6
 
-**Best QPS at recall@10 ≥ threshold (single-thread, one query per call)**
+**QPS at recall@10 target (single-thread, one query per call; interpolated on the recall-QPS curve)**
 
-| library | ≥0.90 | ≥0.95 | ≥0.99 |
+| library | 0.90 | 0.95 | 0.99 |
 |---|---:|---:|---:|
-| hnsw-engine (this) | 15,660 | 9,200 | 5,137 |
-| hnswlib | 14,294 | 8,117 | 4,624 |
-| FAISS HNSWFlat | 12,230 | 6,900 | 3,786 |
+| hnsw-engine (this) | 18,269 | 12,122 | 5,663 |
+| hnswlib | 16,689 | 10,915 | 5,081 |
+| FAISS HNSWFlat | 14,892 | 9,884 | 4,332 |
 
-**Best QPS at recall@10 ≥ threshold (batched, multi-thread)**
+**QPS at recall@10 target (batched, multi-thread; interpolated on the recall-QPS curve)**
 
-| library | ≥0.90 | ≥0.95 | ≥0.99 |
+| library | 0.90 | 0.95 | 0.99 |
 |---|---:|---:|---:|
-| hnsw-engine (this) | 80,811 | 45,430 | 24,450 |
-| hnswlib | 71,714 | 40,403 | 20,586 |
-| FAISS HNSWFlat | 66,652 | 35,090 | 19,554 |
+| hnsw-engine (this) | 94,158 | 61,241 | 27,122 |
+| hnswlib | 83,528 | 54,557 | 23,050 |
+| FAISS HNSWFlat | 83,010 | 52,495 | 22,298 |
 
 **Recall / QPS / latency per ef (single-thread)**
 

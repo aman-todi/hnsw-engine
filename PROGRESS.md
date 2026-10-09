@@ -12,7 +12,7 @@
 | M5 | Python package | done | `pip install .` in a clean venv; 28 pytest tests incl. exact parity with the C++ harness |
 | M6 | Persistence + mmap | done | round-trip identical results (both modes); truncation + bit-flip fuzz always throws; ASan/UBSan clean |
 | M7 | Filtered search + soft delete | done | selectivity sweep 1/10/50/90% (tests + `filter.csv`); deleted labels never returned |
-| M8 | Cross-library benchmarks | done | real SIFT-1M / GloVe-100 / GIST (200k) on an Apple M5, 4 threads; `scripts/run_all_benchmarks.sh` regenerates every CSV/PNG/table and the README/BENCHMARKS results sections |
+| M8 | Cross-library benchmarks | done | real SIFT-1M / GloVe-100 / GIST (200k) on an Apple M5 (NEON, 4 threads) and an Intel i7-13800H under WSL2 (AVX2, 6 threads); per-machine folders in `bench/results/<machine>/`; `scripts/run_all_benchmarks.sh` regenerates every CSV/PNG/table and the README/BENCHMARKS results sections from all machines |
 | M9 | Docs / polish | done | README, DESIGN.md, FORMAT.md, BENCHMARKS.md |
 
 ## Decisions
@@ -20,8 +20,13 @@
 * **Datasets.** The development cloud environment could not reach
   ann-benchmarks.com, so the pipeline was first built and run on synthetic
   stand-ins (`fetch_data.py --synthetic`; results kept as
-  `bench/results/synth-*`). The published results are from the real datasets,
-  run on the owner's Apple M5 MacBook Pro.
+  `bench/results/synthetic-xeon-vm/`). The published results are from the
+  real datasets, run on the owner's Apple M5 MacBook Pro and an HP ZBook
+  (i7-13800H, WSL2).
+* **QPS at a recall target** is interpolated on the recall-vs-QPS curve
+  (log-QPS linear in recall between the bracketing ef points) rather than
+  taken from the best measured point above the target, which produced
+  threshold cliffs (e.g. recall 0.9497 vs target 0.95).
 * **GIST** comparison runs on a 200k subset by default (fits 16 GB RAM);
   `GIST_SUBSET=0` runs the full set.
 * Heuristic neighbor selection without `extendCandidates` /
@@ -41,10 +46,13 @@
 * **Resolved / not reproduced:** on synthetic SIFT the engine's recall
   saturated slightly below hnswlib's at ef = 640; on real SIFT-1M it does not
   (0.9993 vs 0.9992).
-* **Measured gaps (real data, Apple M5):** FAISS is faster than the engine
-  single-threaded on GloVe-100 (≈30% at recall ≥ 0.90) and GIST (≈27% at
-  ≥ 0.95). hnswlib lacks NEON kernels, so the engine's lead over it on ARM is
-  partly a platform effect.
+* **Measured gaps (real data, interpolated):** FAISS is faster than the
+  engine single-threaded on GIST-960 on both machines (Apple M5: ≈28% at
+  recall 0.95; i7-13800H: ≈20%); a few batched points trail by small
+  margins (see README). The earlier GloVe gap was a threshold artefact and
+  disappears with interpolation. hnswlib lacks NEON kernels, so the engine's
+  lead over it on ARM is partly a platform effect; on x86 (like-for-like) the
+  engine leads hnswlib by ≈11% on SIFT at 0.95.
 * **Run on macOS:** the "RSS growth" metric was invalid there (peak instead
   of current RSS); fixed in `compare.py`, shown as "—" for that run.
 * **Fixed during M8:** parallel builds could drop edges (a node overwrote
@@ -52,7 +60,7 @@
   low-degree data. Found via the README example; fixed and regression-tested.
   Benchmarks were re-run after the fix.
 * On the shared cloud VM (synthetic run), throughput varied between runs by
-  ~16% single-thread and ~30% batched; the laptop run was a single pass.
+  ~16% single-thread and ~30% batched; each laptop run was a single pass.
 * Python-level concurrency is tested for correctness, but the TSan run covers
   the C++ suite only (TSan-instrumenting CPython is out of scope).
 * CI (GitHub Actions) is green on `main`: GCC + Clang on Ubuntu, AppleClang on

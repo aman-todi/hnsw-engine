@@ -16,7 +16,7 @@ For every library:
 
 Example:
     python bench/python/compare.py --data data --name synth-sift --metric l2 \\
-        --threads 4 --out bench/results/synth-sift.csv
+        --threads 4 --out bench/results/<machine>/synth-sift.csv
 """
 
 from __future__ import annotations

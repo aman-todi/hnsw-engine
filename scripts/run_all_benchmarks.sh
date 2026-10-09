@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reproduce every benchmark artifact in bench/results/ end to end:
+# Reproduce every benchmark artifact in bench/results/<machine>/ end to end:
 #   kernel microbenchmarks, ablation, build-thread scaling, filtered search,
 #   cross-library comparison (engine vs hnswlib vs FAISS), plots and tables.
 #
@@ -8,7 +8,10 @@
 #                ann-benchmarks downloads (for machines without network access)
 #   --quick      small subsets for a fast end-to-end check (~10 minutes)
 # Environment: THREADS (default: nproc), PYTHON (default: python3),
-#   SIFT_SUBSET / GLOVE_SUBSET / GIST_SUBSET (0 = full set).
+#   SIFT_SUBSET / GLOVE_SUBSET / GIST_SUBSET (0 = full set),
+#   MACHINE (results folder name; default derived from the CPU model, e.g.
+#   apple-m5, intel-i7-13800h-wsl2). --quick / --synthetic runs get a suffix
+#   so they never overwrite a full run's results.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -31,8 +34,21 @@ else
   NQ=0; REPS=3
 fi
 SIFT=${PREFIX}sift; GLOVE=${PREFIX}glove; GIST=${PREFIX}gist
-RES=bench/results
+cpu_model() {
+  if [[ $(uname -s) == Darwin ]]; then sysctl -n machdep.cpu.brand_string
+  else lscpu 2>/dev/null | sed -n 's/^Model name: *//p' | head -1; fi
+}
+if [[ -z ${MACHINE:-} ]]; then
+  MACHINE=$(cpu_model | sed -E 's/\((R|TM)\)//g; s/[0-9]+th Gen //; s/ CPU.*//; s/ @.*//; s/Core //' \
+            | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '-' | sed 's/^-//; s/-$//')
+  MACHINE=${MACHINE:-unknown}
+  grep -qi microsoft /proc/version 2>/dev/null && MACHINE="$MACHINE-wsl2"
+fi
+[[ -n $PREFIX ]] && MACHINE="$MACHINE-synthetic"
+[[ $QUICK == 1 ]] && MACHINE="$MACHINE-quick"
+RES=bench/results/$MACHINE
 mkdir -p "$RES" data
+echo "results folder: $RES"
 
 echo "== build (bench preset: -O3 -march=native) =="
 cmake --preset bench >/dev/null
@@ -109,17 +125,18 @@ for t in 1 2 4 8 16; do
 done
 
 echo "== filtered search sweep =="
-$PYTHON bench/python/filter_sweep.py --data data --name $SIFT --subset $SCALE_SUBSET --threads $THREADS
+$PYTHON bench/python/filter_sweep.py --data data --name $SIFT --subset $SCALE_SUBSET --threads $THREADS \
+  --out $RES/filter.csv
 
 echo "== cross-library comparison =="
 $PYTHON bench/python/compare.py --data data --name $SIFT --metric l2 --subset $SIFT_SUBSET --nq $NQ \
-  --threads $THREADS --reps $REPS --build-1t
+  --threads $THREADS --reps $REPS --build-1t --out $RES/$SIFT.csv
 $PYTHON bench/python/compare.py --data data --name $GLOVE --metric cosine --subset $GLOVE_SUBSET --nq $NQ \
-  --threads $THREADS --reps $REPS
+  --threads $THREADS --reps $REPS --out $RES/$GLOVE.csv
 $PYTHON bench/python/compare.py --data data --name $GIST --metric l2 --subset $GIST_SUBSET --nq $NQ \
-  --threads $THREADS --reps $REPS
+  --threads $THREADS --reps $REPS --out $RES/$GIST.csv
 
 echo "== plots and tables =="
-$PYTHON bench/python/plot.py
-$PYTHON bench/python/report.py
+$PYTHON bench/python/plot.py --results $RES
+$PYTHON bench/python/report.py   # renders every full-run machine folder into README / BENCHMARKS
 echo "done: see $RES/summary.md"

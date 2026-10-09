@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Render the results sections of README.md and docs/BENCHMARKS.md from the
-CSVs in bench/results/ (run after plot.py). Every number in those sections
-comes from here, so the docs always match the measured data.
+"""Render the results sections of README.md and docs/BENCHMARKS.md from every
+full benchmark run under bench/results/<machine>/ (run plot.py on each first).
+Every number in those sections comes from the CSVs, so the docs always match
+the measured data.
 
-Sections are replaced between marker comments:
+A machine folder is included when it holds environment.txt plus the real
+sift/glove/gist comparison CSVs; folders ending in -quick or -synthetic are
+skipped. Sections are replaced between marker comments:
     <!-- results:begin --> ... <!-- results:end -->   (README.md, docs/BENCHMARKS.md)
-    <!-- env:begin --> ... <!-- env:end -->           (docs/BENCHMARKS.md)
 """
 
 from __future__ import annotations
@@ -15,121 +17,165 @@ import math
 import re
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
-RES = REPO / "bench" / "results"
+from results_common import REPO, RESULTS_ROOT, fnum as f, qps_at_recall, read_csv, read_env
+
 NAMES = {"engine": "hnsw-engine", "hnswlib": "hnswlib", "faiss": "FAISS HNSWFlat"}
 LIBS = ("engine", "hnswlib", "faiss")
-# Real ann-benchmarks datasets win over the synthetic stand-ins when both exist.
-REAL = all((RES / f"{d}.csv").exists() for d in ("sift", "glove", "gist"))
-P = "" if REAL else "synth-"
-SIFT, GLOVE, GIST = f"{P}sift", f"{P}glove", f"{P}gist"
-DATASETS = (SIFT, GLOVE, GIST)
+DATASETS = ("sift", "glove", "gist")
+DS_TITLE = {"sift": "SIFT-1M", "glove": "GloVe-100", "gist": "GIST"}
+ISA_NAME = {"scalar": "scalar", "avx2": "AVX2", "avx512": "AVX-512", "neon": "NEON"}
+STEP_LABEL = {"1": "scalar kernels, no prefetch", "2": "+ SIMD kernels", "3": "+ prefetch",
+              "4": "+ AVX-512 kernels", "5": "+ multi-threaded search (batched)"}
 
 
-def rows(name: str) -> list[dict]:
-    p = RES / name
-    return list(csv.DictReader(open(p))) if p.exists() else []
-
-
-def f(v) -> float:
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return math.nan
-
-
-def best(rs, lib, mode, thr):
-    q = [f(r["qps"]) for r in rs if r["library"] == lib and r["mode"] == mode and f(r["recall"]) >= thr]
-    return max(q) if q else math.nan
-
-
-def n0(v):
+def n0(v: float) -> str:
     return "—" if math.isnan(v) else f"{v:,.0f}"
 
 
-def pct(a, b):
+def pct(a: float, b: float) -> str:
     return f"{(a / b - 1) * 100:+.0f}%"
 
 
-def env() -> dict:
-    out = {}
-    p = RES / "environment.txt"
-    if p.exists():
-        for line in p.read_text().splitlines():
-            k, _, v = line.partition(": ")
-            out[k] = v
+class Machine:
+    def __init__(self, path: Path):
+        self.path = path
+        self.slug = path.name
+        self.env = read_env(path)
+        self.data = {d: read_csv(path / f"{d}.csv") for d in DATASETS}
+        self.ablation = read_csv(path / "ablation.csv")
+        self.scaling = read_csv(path / "scaling.csv")
+        self.filter = read_csv(path / "filter.csv")
+        self.brute = read_csv(path / "bruteforce.csv")
+        self.kernels = {}
+        p = path / "micro_kernels.csv"
+        if p.exists():
+            for row in csv.reader(open(p)):
+                if row and row[0].startswith("BM_") and len(row) > 2 and row[2]:
+                    self.kernels[row[0]] = f(row[2])
+        self.isas = [i for i in ("avx2", "avx512", "neon") if f"BM_L2/{i}/128" in self.kernels]
+        self.simd = self.env.get("engine simd", "?")
+
+    @property
+    def threads(self) -> str:
+        m = re.search(r"threads used: (\d+)", self.env.get("cores", ""))
+        return m.group(1) if m else "?"
+
+    @property
+    def label(self) -> str:
+        cpu = self.env.get("cpu", self.slug)
+        cpu = re.sub(r"\((R|TM)\)", "", cpu)
+        cpu = re.sub(r"\d+th Gen ", "", cpu).replace("Core ", "").split(" (")[0].strip()
+        return cpu + (" (WSL2)" if "WSL2" in self.env.get("os", "") else "")
+
+    def qps(self, ds: str, lib: str, t: float, mode: str = "single") -> float:
+        return qps_at_recall(self.data[ds], lib, mode, t)
+
+    def ceiling(self, ds: str, lib: str) -> float:
+        return max((f(r["recall"]) for r in self.data[ds] if r["library"] == lib), default=math.nan)
+
+    def build_row(self, lib: str) -> dict:
+        return next((r for r in self.data["sift"] if r["library"] == lib), {})
+
+    def ablation_qps(self, step: str) -> float:
+        return next((f(r["qps"]) for r in self.ablation if r["label"].split(" ", 1)[0] == step), math.nan)
+
+    def kernel(self, isa: str, fn: str = "L2", dim: int = 128) -> float:
+        return self.kernels.get(f"BM_{fn}/{isa}/{dim}", math.nan)
+
+    def scaling_text(self) -> str:
+        if not self.scaling:
+            return ""
+        a, b = self.scaling[0], self.scaling[-1]
+        t1, tn = f(a["build_s"]), f(b["build_s"])
+        return (f"{t1 / tn:.1f}× on {b['build_threads']} threads ({int(a['n']):,} vectors: {t1:.1f} s → {tn:.1f} s; "
+                f"recall@10 at ef = 64 {f(a['recall']):.4f} → {f(b['recall']):.4f})")
+
+
+def discover() -> list[Machine]:
+    out = []
+    for d in sorted(p for p in RESULTS_ROOT.iterdir() if p.is_dir()):
+        if d.name.endswith(("-quick", "-synthetic")) or not (d / "environment.txt").exists():
+            continue
+        if all((d / f"{ds}.csv").exists() for ds in DATASETS):
+            out.append(Machine(d))
     return out
 
 
-def describe(rs) -> str:
-    r = rs[0]
-    return f"{int(r['n']):,} × {r['dim']}, {r['metric']}"
+def targets_for(machines: list[Machine], ds: str) -> list[float]:
+    """0.95 and 0.99 where any library reaches them; GloVe at M = 16 tops out
+    near 0.94, so fall back to 0.90 there."""
+    ts = [t for t in (0.95, 0.99)
+          if any(not math.isnan(m.qps(ds, lib, t)) for m in machines for lib in LIBS)]
+    return ts or [0.90]
 
 
-def qps_table(data, mode, targets=(0.90, 0.95, 0.99)) -> list[str]:
-    out = ["| dataset | recall@10 target | " + " | ".join(NAMES[l] for l in LIBS) + " |",
-           "|---|---|" + "---:|" * len(LIBS)]
-    for ds, rs in data.items():
-        for t in targets:
-            vals = [best(rs, l, mode, t) for l in LIBS]
-            reached = [v for v in vals if not math.isnan(v)]
-            if not reached:  # no library reaches this target on this dataset
-                continue
-            top = max(reached)
-            cells = [f"**{n0(v)}**" if v == top else n0(v) for v in vals]
-            out.append(f"| {ds} ({describe(rs)}) | ≥ {t:.2f} | " + " | ".join(cells) + " |")
+def comparison_table(machines: list[Machine], mode: str = "single") -> list[str]:
+    out = ["| dataset | recall@10 | machine | " + " | ".join(NAMES[l] for l in LIBS) + " |",
+           "|---|---|---|" + "---:|" * len(LIBS)]
+    for ds in DATASETS:
+        for t in targets_for(machines, ds):
+            for m in machines:
+                vals = [m.qps(ds, lib, t, mode) for lib in LIBS]
+                reached = [v for v in vals if not math.isnan(v)]
+                if not reached:
+                    continue
+                top = max(reached)
+                cells = [f"**{n0(v)}**" if v == top else n0(v) for v in vals]
+                out.append(f"| {DS_TITLE[ds]} | {t:.2f} | {m.label} | " + " | ".join(cells) + " |")
     return out
 
 
-def slower(data) -> list[str]:
+def slower(m: Machine) -> list[str]:
     notes = []
-    for ds, rs in data.items():
+    for ds in DATASETS:
         for mode in ("single", "batch"):
             for t in (0.90, 0.95, 0.99):
-                e = best(rs, "engine", mode, t)
-                others = {l: best(rs, l, mode, t) for l in ("hnswlib", "faiss")}
+                e = m.qps(ds, "engine", t, mode)
+                others = {lib: m.qps(ds, lib, t, mode) for lib in ("hnswlib", "faiss")}
                 lib, o = max(others.items(), key=lambda kv: -math.inf if math.isnan(kv[1]) else kv[1])
                 if not math.isnan(e) and not math.isnan(o) and e < o:
-                    notes.append(f"{ds}, {'single-thread' if mode == 'single' else 'batched'}, recall ≥ {t:.2f}: "
-                                 f"{n0(e)} vs {NAMES[lib]} {n0(o)} QPS ({pct(e, o)})")
+                    notes.append(f"{DS_TITLE[ds]}, {'single-thread' if mode == 'single' else 'batched'}, "
+                                 f"recall {t:.2f}: {n0(e)} vs {NAMES[lib]} {n0(o)} QPS ({pct(e, o)})")
     return notes
 
 
-def versus_best(rs, thr):
-    """(name, QPS) of the fastest non-engine library at a single-thread recall target."""
-    others = {NAMES[l]: best(rs, l, "single", thr) for l in ("hnswlib", "faiss")}
-    name = max(others, key=lambda k: -1.0 if math.isnan(others[k]) else others[k])
-    return name, others[name]
+def ablation_table(machines: list[Machine]) -> list[str]:
+    ms = [m for m in machines if m.ablation]
+    if not ms:
+        return []
+    steps = sorted({r["label"].split(" ", 1)[0] for m in ms for r in m.ablation})
+    out = ["| configuration (C++ harness, SIFT-1M, ef = 64, same graph) | "
+           + " | ".join(f"{m.label} ({ISA_NAME.get(m.simd, m.simd)})" for m in ms) + " |",
+           "|---|" + "---:|" * len(ms)]
+    for st in steps:
+        cells = []
+        for m in ms:
+            q, base = m.ablation_qps(st), m.ablation_qps("1")
+            cells.append("—" if math.isnan(q) else f"{n0(q)} ({q / base:.1f}×)")
+        label = STEP_LABEL.get(st, st)
+        if st == "5":
+            label = "+ " + "/".join(sorted({m.threads for m in ms})) + " search threads (batched)"
+        out.append(f"| {label} | " + " | ".join(cells) + " |")
+    return out
 
 
-def ceiling(rs, lib):
-    return max(f(r["recall"]) for r in rs if r["library"] == lib)
+def build_table(machines: list[Machine]) -> list[str]:
+    out = ["| machine | threads | " + " | ".join(NAMES[l] for l in LIBS) + " |", "|---|---:|" + "---:|" * len(LIBS)]
+    for m in machines:
+        cells = []
+        for lib in LIBS:
+            r = m.build_row(lib)
+            cells.append(f"{f(r.get('build_s')):.0f} s / {f(r.get('build_1t_s')):.0f} s" if r else "—")
+        out.append(f"| {m.label} | {m.threads} | " + " | ".join(cells) + " |")
+    return out
 
 
-def ablation_table() -> tuple[list[str], dict]:
-    ab = rows("ablation.csv")
-    if not ab:
-        return [], {}
-    base = f(ab[0]["qps"])
-    out = ["| configuration (C++ harness, same graph) | recall@10 | QPS | vs scalar |", "|---|---:|---:|---:|"]
-    for r in ab:
-        label = r["label"].split(" ", 1)[1]
-        out.append(f"| {label} | {f(r['recall']):.3f} | {n0(f(r['qps']))} | {f(r['qps']) / base:.1f}× |")
-    return out, {r["label"].split(" ", 1)[1]: f(r["qps"]) for r in ab}
-
-
-def kernels() -> dict:
-    k = {}
-    p = RES / "micro_kernels.csv"
-    if p.exists():
-        for row in csv.reader(open(p)):
-            if row and row[0].startswith("BM_") and len(row) > 2 and row[2]:
-                k[row[0]] = f(row[2])
-    return k
-
-
-def scaling() -> list[dict]:
-    return rows("scaling.csv")
+def platform_note(m: Machine) -> str:
+    if m.simd == "neon":
+        return ("hnswlib ships hand-written SIMD kernels only for x86, so on this ARM machine its distances "
+                "run the compiler's generic code; FAISS (NEON kernels) is the like-for-like comparison here.")
+    return ("all three libraries use hand-written x86 SIMD kernels here (engine: "
+            f"{ISA_NAME.get(m.simd, m.simd)}), so this is the like-for-like three-way comparison.")
 
 
 def replace(path: Path, marker: str, body: str) -> None:
@@ -137,164 +183,112 @@ def replace(path: Path, marker: str, body: str) -> None:
     pat = re.compile(rf"(<!-- {marker}:begin -->\n).*?(<!-- {marker}:end -->)", re.S)
     if not pat.search(text):
         raise SystemExit(f"{path}: missing {marker} markers")
-    path.write_text(pat.sub(lambda m: m.group(1) + body.rstrip() + "\n" + m.group(2), text))
+    path.write_text(pat.sub(lambda mt: mt.group(1) + body.rstrip() + "\n" + mt.group(2), text))
+
+
+def readme(machines: list[Machine]) -> str:
+    md = ["Measured with `scripts/run_all_benchmarks.sh` on the real ann-benchmarks datasets (SIFT-1M, "
+          "GloVe-100, GIST-1M at 200k vectors), M = 16, ef_construction = 200, k = 10, on "
+          f"{len(machines)} machine{'s' if len(machines) > 1 else ''}:", ""]
+    for m in machines:
+        e = m.env
+        md.append(f"* **{m.label}**: {m.threads} threads (performance cores), engine SIMD "
+                  f"{ISA_NAME.get(m.simd, m.simd)}; {e.get('compiler', '?')}; hnswlib {e.get('hnswlib', '?')}, "
+                  f"faiss-cpu {e.get('faiss-cpu', '?')}. On this machine {platform_note(m)}")
+    md += ["", "Full tables, methodology and raw CSVs: [docs/BENCHMARKS.md](docs/BENCHMARKS.md) and "
+           "`bench/results/<machine>/`.", ""]
+    md += [f"![recall vs QPS on SIFT-1M, {m.label}](bench/results/{m.slug}/sift.png)" for m in machines]
+    md += ["", "**Single-thread QPS at a recall@10 target** (one query per Python call; QPS interpolated on "
+           "each library's recall-QPS curve; bold = fastest on that machine):", ""]
+    md += comparison_table(machines)
+    md += ["", "**Build time, SIFT-1M** (multi-threaded / single-threaded):", ""] + build_table(machines)
+    abl = ablation_table(machines)
+    if abl:
+        md += ["", "**Where the speed comes from** (engine only, identical recall in every row):", ""] + abl
+    for m in machines:
+        bits = []
+        ks = m.kernel("scalar")
+        for isa in m.isas:
+            k = m.kernel(isa)
+            bits.append(f"{ISA_NAME[isa]} {k:.1f} ns ({ks / k:.1f}×)")
+        if bits:
+            md += ["", f"*{m.label}:* L2 distance kernel (d = 128) scalar {ks:.1f} ns, " + ", ".join(bits)
+                   + (f"; parallel build {m.scaling_text()}." if m.scaling else ".")]
+    for m in machines:
+        sl = slower(m)
+        if sl:
+            md += ["", f"**Where it is slower on {m.label}** (every target where another library beats the engine):",
+                   ""] + [f"* {s}" for s in sl]
+    return "\n".join(md)
+
+
+def benchmarks(machines: list[Machine]) -> str:
+    b = []
+    for m in machines:
+        summary = (m.path / "summary.md").read_text().split("\n", 2)[2] if (m.path / "summary.md").exists() else ""
+        summary = re.sub(r"^## ", "#### ", summary, flags=re.M)
+        b += [f"### {m.label}", "", "```", (m.path / "environment.txt").read_text().strip(), "```", "",
+              f"Every multi-threaded step used {m.threads} threads. On this machine {platform_note(m)}", ""]
+        b += [f"![{d}](../bench/results/{m.slug}/{d}.png)" for d in DATASETS]
+        b += ["", summary.strip(), ""]
+        if m.brute:
+            b += [f"Brute force on SIFT-1M (1,000 queries) reaches recall {f(m.brute[0]['recall']):.5f} against the "
+                  "provided ground truth (`bruteforce.csv`); anything below 1.0 is exact distance ties in the "
+                  "integer-valued SIFT vectors, where either tied neighbour is correct.", ""]
+        if m.filter:
+            b += [f"#### Filtered search (engine, {m.filter[0]['dataset']}, random allow-lists)", "",
+                  "| allowed | ef | recall@10 | QPS | filter violations |", "|---:|---:|---:|---:|---:|"]
+            b += [f"| {f(r['selectivity']) * 100:.0f}% | {r['ef']} | {f(r['recall']):.4f} | {n0(f(r['qps']))} | "
+                  f"{r['violations']} |" for r in m.filter]
+            b.append("")
+        if m.kernels:
+            cols = ["scalar"] + m.isas
+            b += ["#### Kernel microbenchmarks (Google Benchmark, ns per call)", "",
+                  "| dim | " + " | ".join(f"{ISA_NAME[i]} {fn}" for fn in ("L2", "dot") for i in cols) + " |",
+                  "|---:|" + "---:|" * (2 * len(cols))]
+            for d in (16, 100, 128, 384, 768, 960, 1024):
+                vals = [m.kernel(i, fn, d) for fn in ("L2", "Dot") for i in cols]
+                b.append(f"| {d} | " + " | ".join(f"{v:.1f}" for v in vals) + " |")
+            b.append("")
+    # Resume-ready summary across machines, every figure computed from the CSVs.
+    b += ["## Resume-ready summary (measured, real datasets)", ""]
+    kern = "; ".join(f"{m.kernel('scalar') / m.kernel(m.isas[0]):.1f}× {ISA_NAME[m.isas[0]]} on {m.label}"
+                     for m in machines if m.isas)
+    simd = "; ".join(f"{m.ablation_qps('3') / m.ablation_qps('1'):.1f}× on {m.label}" for m in machines if m.ablation)
+    b.append("* Built an HNSW vector search engine from scratch in C++20 (Malkov & Yashunin, Algorithms 1–5) with "
+             f"AVX2/AVX-512/NEON kernels and runtime CPU dispatch: L2 kernel speedup over scalar {kern}; "
+             f"SIMD + prefetching speed up end-to-end single-thread search {simd} at identical recall (SIFT-1M).")
+    for m in machines:
+        s95 = {l: m.qps("sift", l, 0.95) for l in LIBS}
+        parts = [f"SIFT-1M at recall@10 0.95, single thread: **{n0(s95['engine'])} QPS vs hnswlib "
+                 f"{n0(s95['hnswlib'])} ({pct(s95['engine'], s95['hnswlib'])}) and FAISS {n0(s95['faiss'])} "
+                 f"({pct(s95['engine'], s95['faiss'])})**"]
+        for ds in ("glove", "gist"):
+            t = targets_for(machines, ds)[0]
+            e = m.qps(ds, "engine", t)
+            others = {NAMES[l]: m.qps(ds, l, t) for l in ("hnswlib", "faiss")}
+            name, o = max(others.items(), key=lambda kv: -1.0 if math.isnan(kv[1]) else kv[1])
+            parts.append(f"{DS_TITLE[ds]} at {t:.2f}: {pct(e, o)} vs the fastest other library ({name})")
+        b.append(f"* {m.label} ({m.threads} threads): " + "; ".join(parts) + ".")
+    builds = "; ".join(
+        f"{m.label}: {f(m.build_row('engine')['build_s']):.0f} s on {m.threads} threads vs hnswlib "
+        f"{f(m.build_row('hnswlib')['build_s']):.0f} s, FAISS {f(m.build_row('faiss')['build_s']):.0f} s"
+        for m in machines if m.build_row("engine"))
+    scal = "; ".join(f"{m.scaling_text()} on {m.label}" for m in machines if m.scaling)
+    b.append(f"* Fastest 1M-vector build of the three ({builds}); parallel build scales {scal}.")
+    b.append("* Memory-mapped, checksummed on-disk format whose loader rejects every truncated or bit-flipped file "
+             "in fuzz tests; ASan/UBSan- and TSan-clean; GoogleTest + pytest suites; pybind11 package that releases "
+             "the GIL and matches the C++ results exactly.")
+    return "\n".join(b)
 
 
 def main() -> int:
-    data = {ds: rows(f"{ds}.csv") for ds in DATASETS if rows(f"{ds}.csv")}
-    e = env()
-    k = kernels()
-    abl, abq = ablation_table()
-    sc = scaling()
-    sift = data.get(SIFT, [])
-    build = {r["library"]: r for r in sift} if sift else {}
-    cores = e.get("cores", "?").split(" (")[0]
-    hw = (f"{e.get('cpu', '?')}, {cores} cores, {e.get('memory', '?')} RAM; "
-          f"{e.get('compiler', '?')}; hnswlib {e.get('hnswlib', '?')}, faiss-cpu {e.get('faiss-cpu', '?')}; "
-          f"commit `{e.get('commit', '?')[:7]}`")
-    sl = slower(data)
-    # SIMD ISAs actually measured on this machine (x86: AVX2/AVX-512, ARM: NEON).
-    isas = [i for i in ("avx2", "avx512", "neon") if f"BM_L2/{i}/128" in k]
-    ISA_NAME = {"scalar": "scalar", "avx2": "AVX2", "avx512": "AVX-512", "neon": "NEON"}
-    simd1 = isas[0] if isas else None
-    k_scalar = k.get("BM_L2/scalar/128")
-    sc_txt = ""
-    if sc:
-        t1, tn = f(sc[0]["build_s"]), f(sc[-1]["build_s"])
-        sc_txt = (f"Parallel build: {tn and t1 / tn:.1f}× on {sc[-1]['build_threads']} threads "
-                  f"({int(sc[0]['n']):,} vectors: {t1:.1f} s → {tn:.1f} s; recall@10 at ef=64 "
-                  f"{f(sc[0]['recall']):.4f} → {f(sc[-1]['recall']):.4f}).")
-
-    # ------------------------------------------------------------------ README
-    data_note = ("Real ann-benchmarks datasets (SIFT-1M, GloVe-100, GIST-1M)." if REAL else
-                 "**Synthetic data shaped like the standard sets — not SIFT/GloVe/GIST results.**")
-    md = [f"Measured by `scripts/run_all_benchmarks.sh{'' if REAL else ' --synthetic'}` on {hw}. M = 16, "
-          f"ef_construction = 200, k = 10, {e.get('cores', '?').split('(')[-1].rstrip(')').replace('threads used: ', '')} "
-          f"threads. {data_note} Full tables, methodology and raw CSVs: "
-          "[docs/BENCHMARKS.md](docs/BENCHMARKS.md), `bench/results/`.", "",
-          f"![recall vs QPS on {SIFT}](bench/results/{SIFT}.png)", "",
-          "**Best single-thread QPS at a recall target** (one query per Python call; bold = fastest):", ""]
-    md += qps_table(data, "single")
-    if build:
-        md += ["", f"**Build** ({SIFT}, {int(sift[0]['n']):,} vectors): {f(build['engine']['build_s']):.0f} s on 4 threads / "
-               f"{f(build['engine']['build_1t_s']):.0f} s on 1 thread, vs hnswlib "
-               f"{f(build['hnswlib']['build_s']):.0f} s / {f(build['hnswlib']['build_1t_s']):.0f} s and FAISS "
-               f"{f(build['faiss']['build_s']):.0f} s / {f(build['faiss']['build_1t_s']):.0f} s. Index file "
-               f"{f(build['engine']['index_bytes']) / 2**20:.0f} MB (hnswlib "
-               f"{f(build['hnswlib']['index_bytes']) / 2**20:.0f}, FAISS {f(build['faiss']['index_bytes']) / 2**20:.0f})."]
-    if abl:
-        md += ["", f"**Where the speed comes from** ({SIFT}, ef = 64):", ""] + abl
-    if k_scalar and isas:
-        parts = [f"{ISA_NAME[i]} {k[f'BM_L2/{i}/128']:.1f} ns ({k_scalar / k[f'BM_L2/{i}/128']:.1f}×)" for i in isas]
-        md += ["", f"Distance kernel alone (L2, d = 128): scalar {k_scalar:.1f} ns, " + ", ".join(parts) + f". {sc_txt}"]
-    if sl:
-        md += ["", "**Where it is slower** (every case where another library beats the engine at a target):", ""]
-        md += [f"* {s}" for s in sl]
-        if not REAL:
-            md += ["", "Batched (4-thread) throughput on this shared VM varied by up to ~30% between runs "
-                   "and single-thread by up to ~16% (see the variance section in BENCHMARKS.md, including a "
-                   "synth-glove re-check where the engine was ahead), so only gaps larger than that are meaningful."]
-    if e.get("engine simd") == "neon":
-        md += ["", "**On ARM (this run): hnswlib ships hand-written SIMD distance kernels only for x86 "
-               "(SSE/AVX), so on Apple Silicon its distances use the compiler's generic code path; part of "
-               "the gap to hnswlib reflects that. FAISS has NEON kernels and is the like-for-like comparison "
-               "on this machine.**"]
-    if sift and ceiling(sift, "engine") < ceiling(sift, "hnswlib"):
-        md += ["", f"On {SIFT} the engine's recall saturates a little lower at very high ef "
-               f"(max {ceiling(sift, 'engine'):.4f} vs hnswlib {ceiling(sift, 'hnswlib'):.4f} at ef = 640), "
-               "which is what costs it the ≥ 0.99 target there; this is an open item (see BENCHMARKS.md)."]
-    replace(REPO / "README.md", "results", "\n".join(md))
-
-    # -------------------------------------------------------------- BENCHMARKS
-    replace(REPO / "docs" / "BENCHMARKS.md", "env",
-            "```\n" + (RES / "environment.txt").read_text().strip() + "\n```")
-    summary = (RES / "summary.md").read_text().split("\n", 2)[2]
-    summary = re.sub(r"^## ", "### ", summary, flags=re.M)
-    b = [f"![{d}](../bench/results/{d}.png)" for d in DATASETS if d in data]
-    b += ["", summary.strip(), "",
-         "Notes on the tables:", "",
-         "* Ablation and scaling rows come from the C++ harness (`bench_main`). The ablation loads one",
-         "  pre-built index, so every row searches the identical graph (identical recall); the last row is",
-         "  batched, so it has no per-query latency.",
-         f"* {GIST} peak RSS is dominated by loading the 960-d dataset in each worker, so it is the same",
-         "  for all three libraries; compare the RSS-growth column instead.",
-         f"* Brute force on {SIFT} (1,000 queries) reaches recall "
-         f"{f(rows('bruteforce.csv')[0]['recall']) if rows('bruteforce.csv') else math.nan:.5f} against "
-         f"the {'provided' if REAL else 'NumPy'} ground truth (`bruteforce.csv`), validating the harness."
-         + (" Anything below 1.0 comes from exact distance ties (SIFT vectors are integer-valued, so "
-            "neighbours at rank 10 and 11 can be equidistant and either is correct); recall here "
-            "counts id overlap, as the spec defines it." if REAL else ""), ""]
-    fl = rows("filter.csv")
-    if fl:
-        b += [f"### Filtered search (engine, {fl[0]['dataset']}, random allow-lists)", "",
-              "| allowed | ef | recall@10 | QPS | filter violations |", "|---:|---:|---:|---:|---:|"]
-        b += [f"| {f(r['selectivity']) * 100:.0f}% | {r['ef']} | {f(r['recall']):.4f} | {n0(f(r['qps']))} | "
-              f"{r['violations']} |" for r in fl]
-        b += ["", "Every returned id satisfied the filter. Recall stays high at low selectivity because the search",
-              "keeps exploring until it has `ef` eligible results; the cost is throughput.", ""]
-    if k:
-        dims = (16, 100, 128, 384, 768, 960, 1024)
-        b += ["### Kernel microbenchmarks (Google Benchmark, ns per call)", "",
-              "| dim | " + " | ".join(f"{ISA_NAME[i]} {fn}" for fn in ("L2", "dot") for i in ["scalar"] + isas) + " |",
-              "|---:|" + "---:|" * (2 * (1 + len(isas)))]
-        for d in dims:
-            vals = [k.get(f"BM_{fn}/{isa}/{d}", math.nan) for fn in ("L2", "Dot") for isa in ["scalar"] + isas]
-            b.append(f"| {d} | " + " | ".join(f"{v:.1f}" for v in vals) + " |")
-        b.append("")
-    rc = rows("recheck_synth-glove_batch.csv")
-    if not REAL:
-      b += ["### Run-to-run variance", "",
-          "The benchmark machine is a shared 4-core cloud VM. Comparing two complete runs of the pipeline",
-          "(same code for hnswlib/FAISS, recall identical to 4 decimals), single-thread QPS for the same",
-          "library moved by up to ~16% (hnswlib, synth-sift, recall ≥ 0.95: 2,167 vs 2,508) and batched",
-          "4-thread QPS by up to ~30%. Differences smaller than that are not meaningful on this machine."]
-    if not REAL and rc and "synth-glove" in data:
-        full = data["synth-glove"]
-        b += ["For example, synth-glove batched at ef = 40:", "",
-              "| library | full run QPS | re-check QPS (`recheck_synth-glove_batch.csv`) |", "|---|---:|---:|"]
-        for lib in ("engine", "hnswlib"):
-            a = next((f(r["qps"]) for r in full if r["library"] == lib and r["mode"] == "batch" and r["ef"] == "40"), math.nan)
-            c = next((f(r["qps"]) for r in rc if r["library"] == lib and r["ef"] == "40"), math.nan)
-            b.append(f"| {NAMES[lib]} | {n0(a)} | {n0(c)} |")
-        b += ["", "Rerun on a dedicated host for publishable throughput numbers."]
-    if not REAL:
-      b += ["", "### Open item: high-recall ceiling on synth-sift", "",
-          "At ef = 640 the engine reaches lower recall than hnswlib on synth-sift "
-          f"({ceiling(sift, 'engine'):.4f} vs {ceiling(sift, 'hnswlib'):.4f}), although it matches or",
-          "exceeds hnswlib's recall on synth-glove and synth-gist. Two candidate causes were ruled out by an",
-          "A/B test on a 200k subset (no measurable recall change): passing only the closest node instead of",
-          "the whole result set W to the next layer, and skipping the heuristic when fewer than M candidates",
-          "exist (both hnswlib behaviours). The cause is still open.", ""]
-    if sift and GIST in data and build and k_scalar and simd1:
-        gist = data[GIST]
-        s95 = {l: best(sift, l, "single", 0.95) for l in LIBS}
-        s99 = {l: best(sift, l, "single", 0.99) for l in LIBS}
-        g95 = {l: best(gist, l, "single", 0.95) for l in LIBS}
-        b += [f"## Resume-ready summary (measured; {'SIFT-1M / GIST-1M' if REAL else 'synthetic SIFT/GIST-shaped data'})", "",
-              "* Built an HNSW vector search engine from scratch in C++20 (Malkov & Yashunin, Algorithms 1–5) "
-              "with AVX2/AVX-512/NEON kernels and runtime CPU dispatch: "
-              f"**{k_scalar / k[f'BM_L2/{simd1}/128']:.1f}× faster L2 kernel** ({ISA_NAME[simd1]} vs scalar, d = 128) and "
-              f"**{abq.get('+prefetch', math.nan) / abq.get('scalar kernels (no prefetch)', math.nan):.1f}× single-thread "
-              "QPS from SIMD + prefetching** at identical recall (1M × 128).",
-              f"* {describe(sift)}, recall@10 ≥ 0.95, single thread: **{n0(s95['engine'])} QPS vs "
-              f"hnswlib {n0(s95['hnswlib'])} ({pct(s95['engine'], s95['hnswlib'])}) and FAISS HNSWFlat "
-              f"{n0(s95['faiss'])} ({pct(s95['engine'], s95['faiss'])})**"
-              f"{'' if REAL else ' — on par with hnswlib within this VM’s ~16% run-to-run noise'}. "
-              + (f"Slower than {versus_best(gist, 0.95)[0]} on {describe(gist)} "
-                 f"({pct(g95['engine'], versus_best(gist, 0.95)[1])} at recall ≥ 0.95). "
-                 if versus_best(gist, 0.95)[1] > g95['engine'] else
-                 f"{describe(gist)}: **{pct(g95['engine'], versus_best(gist, 0.95)[1])} vs the next-fastest "
-                 f"library ({versus_best(gist, 0.95)[0]})**. ")
-              + (f"Slower at recall ≥ 0.99 on {describe(sift)} ({pct(s99['engine'], max(s99['hnswlib'], s99['faiss']))} "
-                 "vs the fastest other library)." if s99['engine'] < max(s99['hnswlib'], s99['faiss']) else ""),
-              f"* {sc_txt.replace('Parallel build:', 'Parallel build scales')} 1M-vector build in "
-              f"{f(build['engine']['build_s']):.0f} s on 4 threads (hnswlib {f(build['hnswlib']['build_s']):.0f} s, "
-              f"FAISS {f(build['faiss']['build_s']):.0f} s) at the same index size.",
-              "* Memory-mapped, checksummed on-disk format whose loader rejects every truncated or bit-flipped "
-              "file in fuzz tests; ASan/UBSan- and TSan-clean; GoogleTest + pytest suites; pybind11 package "
-              "that releases the GIL and matches the C++ results exactly."]
-    replace(REPO / "docs" / "BENCHMARKS.md", "results", "\n".join(b))
-    print("updated README.md and docs/BENCHMARKS.md")
+    machines = discover()
+    if not machines:
+        raise SystemExit("no complete machine result folders under bench/results/")
+    replace(REPO / "README.md", "results", readme(machines))
+    replace(REPO / "docs" / "BENCHMARKS.md", "results", benchmarks(machines))
+    print(f"updated README.md and docs/BENCHMARKS.md from {', '.join(m.slug for m in machines)}")
     return 0
 
 
