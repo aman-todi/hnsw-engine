@@ -72,6 +72,19 @@ def plot_dataset(rows: list[dict], out: Path, title: str) -> None:
     plt.close(fig)
 
 
+def _rss_growth_valid() -> bool:
+    """Runs on macOS before compare.py measured current RSS via `ps` recorded
+    peak RSS instead, which makes the growth column meaningless."""
+    env = (REPO / "bench" / "results" / "environment.txt")
+    text = env.read_text() if env.exists() else ""
+    return "os: Darwin" not in text or "rss_growth: ps" in text
+
+
+def rss_growth(r: dict) -> str:
+    v = fnum(r["rss_delta_mb"])
+    return "—" if math.isnan(v) or not _rss_growth_valid() else f"{v:.0f}"
+
+
 def best_qps(rows: list[dict], lib: str, mode: str, thr: float) -> float:
     q = [fnum(r["qps"]) for r in rows if r["library"] == lib and r["mode"] == mode and fnum(r["recall"]) >= thr]
     return max(q) if q else math.nan
@@ -112,7 +125,7 @@ def summary_md(per_dataset: dict[str, list[dict]]) -> str:
         for lib in libs:
             r = next(x for x in rows if x["library"] == lib)
             out.append(f"| {NAMES[lib]} | {r['version']} | {fnum(r['build_s']):.1f} | {fmt(fnum(r['build_1t_s']), 1)} | "
-                       f"{fnum(r['index_bytes']) / 2**20:.0f} | {fnum(r['rss_delta_mb']):.0f} | "
+                       f"{fnum(r['index_bytes']) / 2**20:.0f} | {rss_growth(r)} | "
                        f"{max(fnum(x['peak_rss_mb']) for x in rows if x['library'] == lib):.0f} |")
         out.append("")
     return "\n".join(out)

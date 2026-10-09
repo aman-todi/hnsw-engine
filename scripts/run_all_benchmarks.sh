@@ -63,6 +63,7 @@ echo "== environment =="
     echo "memory: $(free -g 2>/dev/null | awk '/Mem:/{print $2 " GB"}')"
   fi
   echo "os: $(uname -srm)"
+  echo "rss_growth: $([[ -r /proc/self/statm ]] && echo proc || echo ps)"
   echo "compiler: $(${CXX:-c++} --version | head -1)"
   echo "python: $($PYTHON --version)"
   $PYTHON -c "import importlib.metadata as m; print('hnswlib:', m.version('hnswlib')); print('faiss-cpu:', m.version('faiss-cpu')); print('numpy:', m.version('numpy'))"

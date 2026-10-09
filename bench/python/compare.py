@@ -50,8 +50,13 @@ def current_rss_mb() -> float:
     try:
         with open("/proc/self/statm") as f:
             return int(f.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 2**20
-    except OSError:  # macOS: fall back to peak
-        return peak_rss_mb()
+    except OSError:  # no /proc (macOS): ask ps for the current resident set size (KiB)
+        try:
+            out = subprocess.run(["ps", "-o", "rss=", "-p", str(os.getpid())],
+                                 capture_output=True, text=True, check=True).stdout
+            return int(out.strip()) / 1024
+        except (OSError, ValueError, subprocess.CalledProcessError):
+            return float("nan")
 
 
 def peak_rss_mb() -> float:
