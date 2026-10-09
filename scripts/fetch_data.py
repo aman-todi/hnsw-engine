@@ -28,6 +28,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -138,38 +140,57 @@ def exact_knn(base: np.ndarray, queries: np.ndarray, k: int, metric: str,
 # Download + convert
 # ---------------------------------------------------------------------------
 
+USER_AGENT = "Mozilla/5.0 (compatible; hnsw-engine-fetch/0.1; +https://github.com/aman-todi/hnsw-engine)"
+
+
+def _download_curl(url: str, part: Path) -> None:
+    """curl with resume (-C -), redirects, retries and a progress bar."""
+    subprocess.run(["curl", "-fL", "--retry", "5", "--retry-delay", "3", "-C", "-", "-A", USER_AGENT,
+                    "-o", str(part), url], check=True)
+
+
+def _download_urllib(url: str, part: Path) -> None:
+    have = part.stat().st_size if part.exists() else 0
+    # Some servers reject Python's default "Python-urllib" User-Agent with 403.
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    if have:
+        req.add_header("Range", f"bytes={have}-")
+        print(f"  resuming at {have / 1e6:.1f} MB")
+    with urllib.request.urlopen(req) as resp:
+        if have and resp.status != 206:
+            have = 0  # server ignored Range: start over
+        total = resp.headers.get("Content-Length")
+        total = int(total) + have if total else None
+        with open(part, "ab" if have else "wb") as f:
+            done = have
+            last = time.time()
+            while True:
+                chunk = resp.read(1 << 20)
+                if not chunk:
+                    break
+                f.write(chunk)
+                done += len(chunk)
+                if time.time() - last > 5:
+                    pct = f" ({100 * done / total:.1f}%)" if total else ""
+                    print(f"    {done / 1e6:.0f} MB{pct}", flush=True)
+                    last = time.time()
+
+
 def download(url: str, dest: Path) -> None:
-    """Download with HTTP Range resume; prints the SHA-256 when done."""
+    """Download with resume (curl if available, else urllib); prints the SHA-256."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_suffix(dest.suffix + ".part")
     if dest.exists():
         print(f"  {dest} already present")
     else:
-        have = part.stat().st_size if part.exists() else 0
-        req = urllib.request.Request(url)
-        if have:
-            req.add_header("Range", f"bytes={have}-")
-            print(f"  resuming {url} at {have / 1e6:.1f} MB")
+        print(f"  downloading {url}")
+        if shutil.which("curl"):
+            try:
+                _download_curl(url, part)
+            except subprocess.CalledProcessError as e:
+                raise OSError(f"curl failed (exit {e.returncode}) for {url}") from e
         else:
-            print(f"  downloading {url}")
-        with urllib.request.urlopen(req) as resp:
-            if have and resp.status != 206:
-                have = 0  # server ignored Range: start over
-            total = resp.headers.get("Content-Length")
-            total = int(total) + have if total else None
-            with open(part, "ab" if have else "wb") as f:
-                done = have
-                last = time.time()
-                while True:
-                    chunk = resp.read(1 << 20)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    done += len(chunk)
-                    if time.time() - last > 5:
-                        pct = f" ({100 * done / total:.1f}%)" if total else ""
-                        print(f"    {done / 1e6:.0f} MB{pct}", flush=True)
-                        last = time.time()
+            _download_urllib(url, part)
         os.replace(part, dest)
     h = hashlib.sha256()
     with open(dest, "rb") as f:
@@ -267,7 +288,9 @@ def main() -> int:
             try:
                 convert_real(name, args.data_dir, args.subset)
             except (OSError, urllib.error.URLError) as e:
-                print(f"  failed: {e}\n  (no network access? try --synthetic)", file=sys.stderr)
+                print(f"  failed: {e}\n  If the server keeps refusing, download the file manually into "
+                      f"{args.data_dir}/ (e.g. with a browser) and re-run; existing files are reused.\n"
+                      "  No network at all? Use --synthetic.", file=sys.stderr)
                 return 1
     return 0
 
