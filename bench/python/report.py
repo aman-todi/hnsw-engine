@@ -66,14 +66,16 @@ def describe(rs) -> str:
     return f"{int(r['n']):,} × {r['dim']}, {r['metric']}"
 
 
-def qps_table(data, mode, targets=(0.95, 0.99)) -> list[str]:
+def qps_table(data, mode, targets=(0.90, 0.95, 0.99)) -> list[str]:
     out = ["| dataset | recall@10 target | " + " | ".join(NAMES[l] for l in LIBS) + " |",
            "|---|---|" + "---:|" * len(LIBS)]
     for ds, rs in data.items():
         for t in targets:
             vals = [best(rs, l, mode, t) for l in LIBS]
             reached = [v for v in vals if not math.isnan(v)]
-            top = max(reached) if reached else math.nan  # "—" everywhere if nobody reaches t
+            if not reached:  # no library reaches this target on this dataset
+                continue
+            top = max(reached)
             cells = [f"**{n0(v)}**" if v == top else n0(v) for v in vals]
             out.append(f"| {ds} ({describe(rs)}) | ≥ {t:.2f} | " + " | ".join(cells) + " |")
     return out
@@ -91,6 +93,13 @@ def slower(data) -> list[str]:
                     notes.append(f"{ds}, {'single-thread' if mode == 'single' else 'batched'}, recall ≥ {t:.2f}: "
                                  f"{n0(e)} vs {NAMES[lib]} {n0(o)} QPS ({pct(e, o)})")
     return notes
+
+
+def versus_best(rs, thr):
+    """(name, QPS) of the fastest non-engine library at a single-thread recall target."""
+    others = {NAMES[l]: best(rs, l, "single", thr) for l in ("hnswlib", "faiss")}
+    name = max(others, key=lambda k: -1.0 if math.isnan(others[k]) else others[k])
+    return name, others[name]
 
 
 def ceiling(rs, lib):
@@ -139,7 +148,8 @@ def main() -> int:
     sc = scaling()
     sift = data.get(SIFT, [])
     build = {r["library"]: r for r in sift} if sift else {}
-    hw = (f"{e.get('cpu', '?')}, {e.get('cores', '?')}, {e.get('memory', '?')} RAM; "
+    cores = e.get("cores", "?").split(" (")[0]
+    hw = (f"{e.get('cpu', '?')}, {cores} cores, {e.get('memory', '?')} RAM; "
           f"{e.get('compiler', '?')}; hnswlib {e.get('hnswlib', '?')}, faiss-cpu {e.get('faiss-cpu', '?')}; "
           f"commit `{e.get('commit', '?')[:7]}`")
     sl = slower(data)
@@ -184,6 +194,11 @@ def main() -> int:
             md += ["", "Batched (4-thread) throughput on this shared VM varied by up to ~30% between runs "
                    "and single-thread by up to ~16% (see the variance section in BENCHMARKS.md, including a "
                    "synth-glove re-check where the engine was ahead), so only gaps larger than that are meaningful."]
+    if e.get("engine simd") == "neon":
+        md += ["", "**On ARM (this run): hnswlib ships hand-written SIMD distance kernels only for x86 "
+               "(SSE/AVX), so on Apple Silicon its distances use the compiler's generic code path; part of "
+               "the gap to hnswlib reflects that. FAISS has NEON kernels and is the like-for-like comparison "
+               "on this machine.**"]
     if sift and ceiling(sift, "engine") < ceiling(sift, "hnswlib"):
         md += ["", f"On {SIFT} the engine's recall saturates a little lower at very high ef "
                f"(max {ceiling(sift, 'engine'):.4f} vs hnswlib {ceiling(sift, 'hnswlib'):.4f} at ef = 640), "
@@ -261,12 +276,17 @@ def main() -> int:
               f"**{k_scalar / k[f'BM_L2/{simd1}/128']:.1f}× faster L2 kernel** ({ISA_NAME[simd1]} vs scalar, d = 128) and "
               f"**{abq.get('+prefetch', math.nan) / abq.get('scalar kernels (no prefetch)', math.nan):.1f}× single-thread "
               "QPS from SIMD + prefetching** at identical recall (1M × 128).",
-              f"* 1M × 128 L2, recall@10 ≥ 0.95, single thread: **{n0(s95['engine'])} QPS vs hnswlib "
-              f"{n0(s95['hnswlib'])} ({pct(s95['engine'], s95['hnswlib'])}) and FAISS HNSWFlat {n0(s95['faiss'])} "
-              f"({pct(s95['engine'], s95['faiss'])})**"
-              f"{'' if REAL else ' — on par with hnswlib within this VM’s ~16% run-to-run noise'}; "
-              f"200k × 960: **{pct(g95['engine'], g95['hnswlib'])} vs hnswlib**. "
-              f"Slower at recall ≥ 0.99 on 1M × 128 ({pct(s99['engine'], s99['hnswlib'])} vs hnswlib).",
+              f"* {describe(sift)}, recall@10 ≥ 0.95, single thread: **{n0(s95['engine'])} QPS vs "
+              f"hnswlib {n0(s95['hnswlib'])} ({pct(s95['engine'], s95['hnswlib'])}) and FAISS HNSWFlat "
+              f"{n0(s95['faiss'])} ({pct(s95['engine'], s95['faiss'])})**"
+              f"{'' if REAL else ' — on par with hnswlib within this VM’s ~16% run-to-run noise'}. "
+              + (f"Slower than {versus_best(gist, 0.95)[0]} on {describe(gist)} "
+                 f"({pct(g95['engine'], versus_best(gist, 0.95)[1])} at recall ≥ 0.95). "
+                 if versus_best(gist, 0.95)[1] > g95['engine'] else
+                 f"{describe(gist)}: **{pct(g95['engine'], versus_best(gist, 0.95)[1])} vs the next-fastest "
+                 f"library ({versus_best(gist, 0.95)[0]})**. ")
+              + (f"Slower at recall ≥ 0.99 on {describe(sift)} ({pct(s99['engine'], max(s99['hnswlib'], s99['faiss']))} "
+                 "vs the fastest other library)." if s99['engine'] < max(s99['hnswlib'], s99['faiss']) else ""),
               f"* {sc_txt.replace('Parallel build:', 'Parallel build scales')} 1M-vector build in "
               f"{f(build['engine']['build_s']):.0f} s on 4 threads (hnswlib {f(build['hnswlib']['build_s']):.0f} s, "
               f"FAISS {f(build['faiss']['build_s']):.0f} s) at the same index size.",

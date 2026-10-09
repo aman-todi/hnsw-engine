@@ -16,12 +16,10 @@ performance number below comes from a script in this repository and is
 benchmarked against **hnswlib** and **FAISS `IndexHNSWFlat`** under identical
 parameters.
 
-> **About the benchmark data.** The machine these results were produced on had
-> no network route to ann-benchmarks.com, so the numbers below use *synthetic
-> stand-ins* with the exact shape and metric of SIFT-1M, GloVe-100 and GIST-1M
-> (named `synth-sift`, `synth-glove`, `synth-gist`). They are not SIFT/GloVe/GIST
-> results. `scripts/run_all_benchmarks.sh` (without `--synthetic`) runs the real
-> datasets on a machine with network access.
+> **Benchmarks** are on the real ann-benchmarks datasets (SIFT-1M,
+> GloVe-100, GIST-1M at 200k) on an Apple M5 MacBook Pro, 4 threads. On ARM,
+> FAISS is the like-for-like competitor (hnswlib has no NEON kernels); see
+> [Results](#results) and [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
 ## Architecture
 
@@ -100,25 +98,26 @@ auto mapped = hnsw::Index::load("index.bin", /*mmap=*/true);
 
 Link against the `hnsw::engine` CMake target (`add_subdirectory` this repo).
 
-### Reproduce a benchmark (≈ 10 minutes)
+### Reproduce a benchmark (≈ 15 minutes)
 
 ```bash
-pip install numpy hnswlib faiss-cpu matplotlib
-python scripts/fetch_data.py --synthetic sift --n 200000 --nq 1000     # or: python scripts/fetch_data.py sift
+pip install numpy h5py hnswlib faiss-cpu matplotlib
+python scripts/fetch_data.py sift --subset 200000      # real SIFT (500 MB download) -> data/sift-200k_*
 cmake --preset bench && cmake --build --preset bench --target bench_main
-./build/bench/bench/bench_main --data data --name synth-sift --ef 10,20,40,80,160 --build-threads 0
+./build/bench/bench/bench_main --data data --name sift-200k --nq 1000 --ef 10,20,40,80,160 --build-threads 0
 HNSW_NATIVE=ON pip install .
-python bench/python/compare.py --data data --name synth-sift --metric l2 --reps 1
-python bench/python/plot.py      # bench/results/synth-sift.png + summary.md
+python bench/python/compare.py --data data --name sift-200k --metric l2 --nq 1000 --reps 1
+python bench/python/plot.py      # bench/results/sift-200k.png + summary.md
 ```
 
-The full pipeline (all datasets, ablation, scaling, filters, plots) is
-`scripts/run_all_benchmarks.sh [--synthetic] [--quick]`.
+The full pipeline (all datasets, ablation, scaling, filters, plots, docs) is
+`scripts/run_all_benchmarks.sh [--quick]`; `--synthetic` generates offline
+stand-ins when ann-benchmarks.com is unreachable.
 
 ## Results
 
 <!-- results:begin -->
-Measured by `scripts/run_all_benchmarks.sh` on Apple M5 (4 performance + 6 efficiency cores), 10 (threads used: 4), 16 GB RAM; Apple clang version 21.0.0 (clang-2100.1.1.101); hnswlib 0.8.0, faiss-cpu 1.13.0; commit `0daf0bc`. M = 16, ef_construction = 200, k = 10, 4 threads. Real ann-benchmarks datasets (SIFT-1M, GloVe-100, GIST-1M). Full tables, methodology and raw CSVs: [docs/BENCHMARKS.md](docs/BENCHMARKS.md), `bench/results/`.
+Measured by `scripts/run_all_benchmarks.sh` on Apple M5 (4 performance + 6 efficiency cores), 10 cores, 16 GB RAM; Apple clang version 21.0.0 (clang-2100.1.1.101); hnswlib 0.8.0, faiss-cpu 1.13.0; commit `0daf0bc`. M = 16, ef_construction = 200, k = 10, 4 threads. Real ann-benchmarks datasets (SIFT-1M, GloVe-100, GIST-1M). Full tables, methodology and raw CSVs: [docs/BENCHMARKS.md](docs/BENCHMARKS.md), `bench/results/`.
 
 ![recall vs QPS on sift](bench/results/sift.png)
 
@@ -126,10 +125,11 @@ Measured by `scripts/run_all_benchmarks.sh` on Apple M5 (4 performance + 6 effic
 
 | dataset | recall@10 target | hnsw-engine | hnswlib | FAISS HNSWFlat |
 |---|---|---:|---:|---:|
+| sift (1,000,000 × 128, l2) | ≥ 0.90 | **21,666** | 11,127 | 17,884 |
 | sift (1,000,000 × 128, l2) | ≥ 0.95 | **12,414** | 6,424 | 10,062 |
 | sift (1,000,000 × 128, l2) | ≥ 0.99 | **6,910** | 3,608 | 5,419 |
-| glove (1,183,514 × 100, cosine) | ≥ 0.95 | — | — | — |
-| glove (1,183,514 × 100, cosine) | ≥ 0.99 | — | — | — |
+| glove (1,183,514 × 100, cosine) | ≥ 0.90 | 1,705 | 1,144 | **2,437** |
+| gist (200,000 × 960, l2) | ≥ 0.90 | 1,685 | 770 | **2,300** |
 | gist (200,000 × 960, l2) | ≥ 0.95 | 1,685 | 770 | **2,300** |
 | gist (200,000 × 960, l2) | ≥ 0.99 | 559 | 263 | **680** |
 
@@ -153,6 +153,8 @@ Distance kernel alone (L2, d = 128): scalar 26.3 ns, NEON 5.2 ns (5.0×). Parall
 * gist, single-thread, recall ≥ 0.90: 1,685 vs FAISS HNSWFlat 2,300 QPS (-27%)
 * gist, single-thread, recall ≥ 0.95: 1,685 vs FAISS HNSWFlat 2,300 QPS (-27%)
 * gist, single-thread, recall ≥ 0.99: 559 vs FAISS HNSWFlat 680 QPS (-18%)
+
+**On ARM (this run): hnswlib ships hand-written SIMD distance kernels only for x86 (SSE/AVX), so on Apple Silicon its distances use the compiler's generic code path; part of the gap to hnswlib reflects that. FAISS has NEON kernels and is the like-for-like comparison on this machine.**
 <!-- results:end -->
 
 ## Testing and quality
@@ -176,8 +178,12 @@ Distance kernel alone (L2, d = 128): scalar 26.3 ns, NEON 5.2 ns (5.0×). Parall
 
 ## Limitations
 
-* Benchmarks in this repository were measured on synthetic data shaped like
-  the standard datasets (see the note at the top), on one 4-core cloud VM.
+* The published benchmark is one machine (Apple M5, 4 performance cores) and
+  one parameter setting (M = 16, ef_construction = 200). On ARM, hnswlib runs
+  without hand-written SIMD, which flatters the engine's lead over it; FAISS
+  is faster than the engine on GloVe-100 and GIST (see Results).
+* GloVe-100 at M = 16 tops out around recall@10 = 0.94 for all three
+  libraries even at ef = 640; higher recall needs a larger M.
 * Index updates are append + soft delete only; deleted nodes stay in the graph
   and their space is never reclaimed.
 * Inserts and searches do not overlap: mutations take an exclusive lock and

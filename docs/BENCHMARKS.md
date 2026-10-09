@@ -1,31 +1,34 @@
 # Benchmarks
 
-All numbers in this document were produced by `scripts/run_all_benchmarks.sh
---synthetic` and are copied from the CSVs in `bench/results/` (raw rows,
-plots and the generated `summary.md` live there). Nothing here was typed in
-by hand from memory.
+All numbers in this document were produced by `scripts/run_all_benchmarks.sh`
+and are rendered from the CSVs in `bench/results/` by `bench/python/report.py`
+(raw rows, plots and the generated `summary.md` live there). Nothing here was
+typed in by hand.
 
-## Read this first: the data is synthetic
+## Data
 
-The benchmark machine could not reach ann-benchmarks.com (blocked by its
-network policy), so the real SIFT-1M / GloVe-100 / GIST-1M HDF5 files were not
-available. `scripts/fetch_data.py --synthetic` generates stand-ins with the
-**same dimension, base size, query count and metric**:
+The real [ann-benchmarks](https://github.com/erikbern/ann-benchmarks) HDF5
+files, downloaded and converted by `scripts/fetch_data.py` (SHA-256 printed on
+download):
 
-| name | dim | base | queries | metric | real counterpart |
+| dataset | dim | base | queries | metric | ground truth |
 |---|---:|---:|---:|---|---|
-| synth-sift | 128 | 1,000,000 | 10,000 | L2 | SIFT-1M |
-| synth-glove | 100 | 1,183,514 | 10,000 | cosine | GloVe-100 (angular) |
-| synth-gist | 960 | 1,000,000 (200,000 used) | 1,000 | L2 | GIST-1M |
+| SIFT-1M | 128 | 1,000,000 | 10,000 | L2 | provided top-100 |
+| GloVe-100 | 100 | 1,183,514 | 10,000 | cosine (angular) | provided top-100 |
+| GIST-1M | 960 | 200,000 of 1,000,000 | 1,000 | L2 | recomputed exactly for the subset (NumPy) |
 
-Vectors are drawn from a 256-component Gaussian mixture in which every
-component lives on its own random 24-dimensional subspace plus small isotropic
-noise (low intrinsic dimension, like real descriptors/embeddings). Exact
-top-100 ground truth is computed with NumPy (float32 shortlist, float64
-re-rank) — independently of the engine. Absolute recall/QPS on real data will
-differ; the *relative* comparison between libraries under identical
-conditions is the point of these numbers. Run the script without
-`--synthetic` on a networked machine to benchmark the real files.
+GIST runs on its first 200k vectors (`GIST_SUBSET`) so three 960-d indexes fit
+comfortably in 16 GB of RAM; set `GIST_SUBSET=0` on a larger machine.
+
+### Earlier synthetic run
+
+Before the real files were reachable, the pipeline was developed and run on
+synthetic stand-ins of the same shapes (`--synthetic`, Gaussian mixtures on
+low-dimensional subspaces) on a 4-core Intel Xeon cloud VM with AVX-512. Those
+raw CSVs and plots are kept as `bench/results/synth-*` for reference but are not
+used in the tables below. One observation from that run, a slightly lower
+high-recall ceiling than hnswlib on synthetic SIFT, does **not** reproduce on
+real SIFT-1M (max recall 0.9993 vs hnswlib 0.9992).
 
 ## Setup
 
@@ -46,32 +49,40 @@ engine simd: neon
 ```
 <!-- env:end -->
 
-* Engine built with `-O3 -march=native` (`bench` preset for the C++ harness,
-  `HNSW_NATIVE=ON pip install .` for the Python package). hnswlib 0.8.0 is
-  distributed as an sdist and was compiled locally with its default
-  `-O3 -march=native`. faiss-cpu 1.15.1 is the PyPI wheel, which dispatches at
-  runtime to its AVX-512 build on this CPU (`get_compile_options()` →
-  `OPTIMIZE DD AVX2 AVX512`).
+* Hardware and software versions are in the block above
+  (`bench/results/environment.txt`). The CPU has 4 performance and 6
+  efficiency cores; every multi-threaded step used **4 threads** (the
+  performance cores) for all three libraries.
+* Engine built with `-O3` and `-mcpu=native` (`bench` preset for the C++
+  harness, `HNSW_NATIVE=ON pip install .` for the Python package), using its
+  NEON kernels. hnswlib 0.8.0 is an sdist compiled locally with its default
+  flags; its hand-written SIMD kernels are x86-only (SSE/AVX), so on ARM it
+  runs its generic distance code. faiss-cpu 1.13.0 is the PyPI wheel (newest
+  available for the Python 3.9 used here) and has NEON kernels, so **FAISS is
+  the like-for-like comparison on this machine**.
 * All libraries: `M = 16`, `ef_construction = 200`, `k = 10`, same metric
   (FAISS cosine = inner product on normalized vectors, which is how the other
-  two implement cosine internally), same thread count (4; FAISS via
+  two implement cosine internally), same thread count (FAISS via
   `omp_set_num_threads`).
-* Every library runs in its own subprocess (`compare.py`), so peak RSS is
+* Every library runs in its own subprocess (`compare.py`), so peak memory is
   isolated per library.
 * Search comparisons use a pre-built index (standard ann-benchmarks method):
   build once, then sweep `ef_search ∈ {10, 20, 40, 80, 160, 320, 640}`.
-* Two query modes: **single** — one thread, one query per Python call
+* Two query modes: **single**: one thread, one query per Python call
   (per-query latency p50/p95/p99, includes the Python call overhead for every
-  library alike); **batch** — all queries in one call on 4 threads
+  library alike); **batch**: all queries in one call on 4 threads
   (throughput). Each point: warm-up pass, then 3 repetitions, median by QPS.
 * Recall@10 = |returned ∩ true top-10| / 10, averaged over queries (id
-  overlap; with exact distance ties a correct answer could count as a miss —
-  ties do not occur in this continuous synthetic data).
-* Build metrics: wall time with 4 threads and with 1 thread (synth-sift),
-  RSS growth during the build, peak RSS of the process, serialized file size.
-* GIST is run on a 200k subset (`GIST_SUBSET`, ground truth recomputed
-  exactly for the subset) to keep three 960-d builds within the 15 GB / 4-core
-  budget of the benchmark machine.
+  overlap). SIFT vectors are integer-valued, so exact distance ties occur and
+  a correct neighbour can occasionally count as a miss; this is why brute
+  force scores 0.9991 rather than 1.0 against the provided ground truth.
+* Build metrics: wall time with 4 threads and with 1 thread (SIFT), peak RSS
+  of the process and serialized index size. The "RSS growth" column is shown
+  as "—" for this run: on macOS the harness at this commit recorded peak
+  instead of current RSS, which makes growth meaningless (fixed for future
+  runs; `compare.py` now asks `ps`).
+* Throughput on a laptop depends on thermals and background load; the run
+  was made plugged in, with other applications closed.
 
 ## Results
 
@@ -130,9 +141,9 @@ n=200000, dim=960, metric=l2, M=16, ef_construction=200, k=10, threads=4
 
 | library | version | build s (N threads) | build s (1 thread) | index file MB | RSS growth MB | peak RSS MB |
 |---|---|---:|---:|---:|---:|---:|
-| hnsw-engine (this) | 0.1.0 | 54.7 | — | 760 | 35 | 1528 |
-| hnswlib | 0.8.0 | 82.8 | — | 761 | 64 | 1557 |
-| FAISS HNSWFlat | 1.13.0 | 59.6 | — | 760 | 78 | 1572 |
+| hnsw-engine (this) | 0.1.0 | 54.7 | — | 760 | — | 1528 |
+| hnswlib | 0.8.0 | 82.8 | — | 761 | — | 1557 |
+| FAISS HNSWFlat | 1.13.0 | 59.6 | — | 760 | — | 1572 |
 
 ### glove
 
@@ -184,9 +195,9 @@ n=1183514, dim=100, metric=cosine, M=16, ef_construction=200, k=10, threads=4
 
 | library | version | build s (N threads) | build s (1 thread) | index file MB | RSS growth MB | peak RSS MB |
 |---|---|---:|---:|---:|---:|---:|
-| hnsw-engine (this) | 0.1.0 | 65.6 | — | 671 | 333 | 1270 |
-| hnswlib | 0.8.0 | 108.7 | — | 619 | 345 | 1282 |
-| FAISS HNSWFlat | 1.13.0 | 96.3 | — | 614 | 861 | 1798 |
+| hnsw-engine (this) | 0.1.0 | 65.6 | — | 671 | — | 1270 |
+| hnswlib | 0.8.0 | 108.7 | — | 619 | — | 1282 |
+| FAISS HNSWFlat | 1.13.0 | 96.3 | — | 614 | — | 1798 |
 
 ### sift
 
@@ -238,9 +249,9 @@ n=1000000, dim=128, metric=l2, M=16, ef_construction=200, k=10, threads=4
 
 | library | version | build s (N threads) | build s (1 thread) | index file MB | RSS growth MB | peak RSS MB |
 |---|---|---:|---:|---:|---:|---:|
-| hnsw-engine (this) | 0.1.0 | 42.5 | 153.8 | 628 | 5 | 1248 |
-| hnswlib | 0.8.0 | 82.2 | 298.2 | 630 | 11 | 1310 |
-| FAISS HNSWFlat | 1.13.0 | 56.3 | 198.0 | 626 | 1 | 1347 |
+| hnsw-engine (this) | 0.1.0 | 42.5 | 153.8 | 628 | — | 1248 |
+| hnswlib | 0.8.0 | 82.2 | 298.2 | 630 | — | 1310 |
+| FAISS HNSWFlat | 1.13.0 | 56.3 | 198.0 | 626 | — | 1347 |
 
 ### Ablation (bench_main, engine only)
 
@@ -307,7 +318,7 @@ keeps exploring until it has `ef` eligible results; the cost is throughput.
 ## Resume-ready summary (measured; SIFT-1M / GIST-1M)
 
 * Built an HNSW vector search engine from scratch in C++20 (Malkov & Yashunin, Algorithms 1–5) with AVX2/AVX-512/NEON kernels and runtime CPU dispatch: **5.0× faster L2 kernel** (NEON vs scalar, d = 128) and **1.9× single-thread QPS from SIMD + prefetching** at identical recall (1M × 128).
-* 1M × 128 L2, recall@10 ≥ 0.95, single thread: **12,414 QPS vs hnswlib 6,424 (+93%) and FAISS HNSWFlat 10,062 (+23%)**; 200k × 960: **+119% vs hnswlib**. Slower at recall ≥ 0.99 on 1M × 128 (+92% vs hnswlib).
+* 1,000,000 × 128, l2, recall@10 ≥ 0.95, single thread: **12,414 QPS vs hnswlib 6,424 (+93%) and FAISS HNSWFlat 10,062 (+23%)**. Slower than FAISS HNSWFlat on 200,000 × 960, l2 (-27% at recall ≥ 0.95). 
 * Parallel build scales 3.8× on 4 threads (200,000 vectors: 21.0 s → 5.5 s; recall@10 at ef=64 0.9811 → 0.9810). 1M-vector build in 42 s on 4 threads (hnswlib 82 s, FAISS 56 s) at the same index size.
 * Memory-mapped, checksummed on-disk format whose loader rejects every truncated or bit-flipped file in fuzz tests; ASan/UBSan- and TSan-clean; GoogleTest + pytest suites; pybind11 package that releases the GIL and matches the C++ results exactly.
 <!-- results:end -->

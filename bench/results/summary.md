@@ -50,9 +50,9 @@ n=200000, dim=960, metric=l2, M=16, ef_construction=200, k=10, threads=4
 
 | library | version | build s (N threads) | build s (1 thread) | index file MB | RSS growth MB | peak RSS MB |
 |---|---|---:|---:|---:|---:|---:|
-| hnsw-engine (this) | 0.1.0 | 54.7 | — | 760 | 35 | 1528 |
-| hnswlib | 0.8.0 | 82.8 | — | 761 | 64 | 1557 |
-| FAISS HNSWFlat | 1.13.0 | 59.6 | — | 760 | 78 | 1572 |
+| hnsw-engine (this) | 0.1.0 | 54.7 | — | 760 | — | 1528 |
+| hnswlib | 0.8.0 | 82.8 | — | 761 | — | 1557 |
+| FAISS HNSWFlat | 1.13.0 | 59.6 | — | 760 | — | 1572 |
 
 ## glove
 
@@ -104,9 +104,9 @@ n=1183514, dim=100, metric=cosine, M=16, ef_construction=200, k=10, threads=4
 
 | library | version | build s (N threads) | build s (1 thread) | index file MB | RSS growth MB | peak RSS MB |
 |---|---|---:|---:|---:|---:|---:|
-| hnsw-engine (this) | 0.1.0 | 65.6 | — | 671 | 333 | 1270 |
-| hnswlib | 0.8.0 | 108.7 | — | 619 | 345 | 1282 |
-| FAISS HNSWFlat | 1.13.0 | 96.3 | — | 614 | 861 | 1798 |
+| hnsw-engine (this) | 0.1.0 | 65.6 | — | 671 | — | 1270 |
+| hnswlib | 0.8.0 | 108.7 | — | 619 | — | 1282 |
+| FAISS HNSWFlat | 1.13.0 | 96.3 | — | 614 | — | 1798 |
 
 ## sift
 
@@ -158,9 +158,9 @@ n=1000000, dim=128, metric=l2, M=16, ef_construction=200, k=10, threads=4
 
 | library | version | build s (N threads) | build s (1 thread) | index file MB | RSS growth MB | peak RSS MB |
 |---|---|---:|---:|---:|---:|---:|
-| hnsw-engine (this) | 0.1.0 | 42.5 | 153.8 | 628 | 5 | 1248 |
-| hnswlib | 0.8.0 | 82.2 | 298.2 | 630 | 11 | 1310 |
-| FAISS HNSWFlat | 1.13.0 | 56.3 | 198.0 | 626 | 1 | 1347 |
+| hnsw-engine (this) | 0.1.0 | 42.5 | 153.8 | 628 | — | 1248 |
+| hnswlib | 0.8.0 | 82.2 | 298.2 | 630 | — | 1310 |
+| FAISS HNSWFlat | 1.13.0 | 56.3 | 198.0 | 626 | — | 1347 |
 
 ## Ablation (bench_main, engine only)
 
