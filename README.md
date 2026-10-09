@@ -118,47 +118,41 @@ The full pipeline (all datasets, ablation, scaling, filters, plots) is
 ## Results
 
 <!-- results:begin -->
-Measured by `scripts/run_all_benchmarks.sh --synthetic` on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 (threads used: 4), 15 GB RAM; c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0; hnswlib 0.8.0, faiss-cpu 1.15.1; commit `ca19d78`. M = 16, ef_construction = 200, k = 10, 4 threads. **Synthetic data shaped like the standard sets — not SIFT/GloVe/GIST results.** Full tables, methodology and raw CSVs: [docs/BENCHMARKS.md](docs/BENCHMARKS.md), `bench/results/`.
+Measured by `scripts/run_all_benchmarks.sh` on Apple M5 (4 performance + 6 efficiency cores), 10 (threads used: 4), 16 GB RAM; Apple clang version 21.0.0 (clang-2100.1.1.101); hnswlib 0.8.0, faiss-cpu 1.13.0; commit `0daf0bc`. M = 16, ef_construction = 200, k = 10, 4 threads. Real ann-benchmarks datasets (SIFT-1M, GloVe-100, GIST-1M). Full tables, methodology and raw CSVs: [docs/BENCHMARKS.md](docs/BENCHMARKS.md), `bench/results/`.
 
-![recall vs QPS on synth-sift](bench/results/synth-sift.png)
+![recall vs QPS on sift](bench/results/sift.png)
 
 **Best single-thread QPS at a recall target** (one query per Python call; bold = fastest):
 
 | dataset | recall@10 target | hnsw-engine | hnswlib | FAISS HNSWFlat |
 |---|---|---:|---:|---:|
-| synth-sift (1,000,000 × 128, l2) | ≥ 0.95 | **2,708** | 2,508 | 1,966 |
-| synth-sift (1,000,000 × 128, l2) | ≥ 0.99 | 598 | **956** | 775 |
-| synth-glove (1,183,514 × 100, cosine) | ≥ 0.95 | **4,854** | 4,740 | 3,451 |
-| synth-glove (1,183,514 × 100, cosine) | ≥ 0.99 | 1,633 | **1,715** | 1,418 |
-| synth-gist (200,000 × 960, l2) | ≥ 0.95 | **1,344** | 838 | 850 |
-| synth-gist (200,000 × 960, l2) | ≥ 0.99 | **760** | 454 | 681 |
+| sift (1,000,000 × 128, l2) | ≥ 0.95 | **12,414** | 6,424 | 10,062 |
+| sift (1,000,000 × 128, l2) | ≥ 0.99 | **6,910** | 3,608 | 5,419 |
+| glove (1,183,514 × 100, cosine) | ≥ 0.95 | — | — | — |
+| glove (1,183,514 × 100, cosine) | ≥ 0.99 | — | — | — |
+| gist (200,000 × 960, l2) | ≥ 0.95 | 1,685 | 770 | **2,300** |
+| gist (200,000 × 960, l2) | ≥ 0.99 | 559 | 263 | **680** |
 
-**Build** (synth-sift, 1,000,000 vectors): 132 s on 4 threads / 570 s on 1 thread, vs hnswlib 171 s / 722 s and FAISS 196 s / 791 s. Index file 628 MB (hnswlib 630, FAISS 626).
+**Build** (sift, 1,000,000 vectors): 42 s on 4 threads / 154 s on 1 thread, vs hnswlib 82 s / 298 s and FAISS 56 s / 198 s. Index file 628 MB (hnswlib 630, FAISS 626).
 
-**Where the speed comes from** (synth-sift, ef = 64):
+**Where the speed comes from** (sift, ef = 64):
 
 | configuration (C++ harness, same graph) | recall@10 | QPS | vs scalar |
 |---|---:|---:|---:|
-| scalar kernels (no prefetch) | 0.953 | 1,375 | 1.0× |
-| +AVX2 kernels | 0.953 | 2,337 | 1.7× |
-| +prefetch | 0.953 | 3,363 | 2.4× |
-| +AVX-512 kernels | 0.953 | 3,060 | 2.2× |
-| +4 search threads | 0.953 | 13,080 | 9.5× |
+| scalar kernels (no prefetch) | 0.963 | 7,830 | 1.0× |
+| +NEON kernels | 0.963 | 13,878 | 1.8× |
+| +prefetch | 0.963 | 15,234 | 1.9× |
+| +4 search threads | 0.963 | 55,324 | 7.1× |
 
-Distance kernel alone (L2, d = 128): scalar 125.4 ns, AVX2 16.5 ns (7.6×), AVX-512 13.3 ns (9.4×). Parallel build: 4.0× on 4 threads (200,000 vectors: 67.0 s → 16.8 s; recall@10 at ef=64 0.9945 → 0.9944).
+Distance kernel alone (L2, d = 128): scalar 26.3 ns, NEON 5.2 ns (5.0×). Parallel build: 3.8× on 4 threads (200,000 vectors: 21.0 s → 5.5 s; recall@10 at ef=64 0.9811 → 0.9810).
 
 **Where it is slower** (every case where another library beats the engine at a target):
 
-* synth-sift, single-thread, recall ≥ 0.99: 598 vs hnswlib 956 QPS (-37%)
-* synth-sift, batched, recall ≥ 0.99: 3,034 vs hnswlib 4,217 QPS (-28%)
-* synth-glove, single-thread, recall ≥ 0.99: 1,633 vs hnswlib 1,715 QPS (-5%)
-* synth-glove, batched, recall ≥ 0.90: 18,341 vs hnswlib 24,107 QPS (-24%)
-* synth-glove, batched, recall ≥ 0.95: 18,341 vs hnswlib 24,107 QPS (-24%)
-* synth-glove, batched, recall ≥ 0.99: 6,979 vs hnswlib 7,936 QPS (-12%)
-
-Batched (4-thread) throughput on this shared VM varied by up to ~30% between runs and single-thread by up to ~16% (see the variance section in BENCHMARKS.md, including a synth-glove re-check where the engine was ahead), so only gaps larger than that are meaningful.
-
-On synth-sift the engine's recall saturates a little lower at very high ef (max 0.9913 vs hnswlib 0.9962 at ef = 640), which is what costs it the ≥ 0.99 target there; this is an open item (see BENCHMARKS.md).
+* glove, single-thread, recall ≥ 0.90: 1,705 vs FAISS HNSWFlat 2,437 QPS (-30%)
+* glove, batched, recall ≥ 0.90: 6,266 vs FAISS HNSWFlat 8,931 QPS (-30%)
+* gist, single-thread, recall ≥ 0.90: 1,685 vs FAISS HNSWFlat 2,300 QPS (-27%)
+* gist, single-thread, recall ≥ 0.95: 1,685 vs FAISS HNSWFlat 2,300 QPS (-27%)
+* gist, single-thread, recall ≥ 0.99: 559 vs FAISS HNSWFlat 680 QPS (-18%)
 <!-- results:end -->
 
 ## Testing and quality
